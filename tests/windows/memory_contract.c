@@ -1,4 +1,9 @@
-/* SPDX-License-Identifier: AGPL-3.0-only */
+/*
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
+ * Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+ * and provenance details.
+ */
 #include <assert.h>
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
@@ -49,6 +54,7 @@ int main(void)
 	assert(releases == 1);
 
 	objc_setAssociatedObject(holder, &key, value, OBJC_ASSOCIATION_RETAIN);
+	assert(object_getClass(holder) == cls);
 	assert(objc_getAssociatedObject(holder, &key) == value);
 	assert(retains == 2);
 	objc_removeAssociatedObjects(holder);
