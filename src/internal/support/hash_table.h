@@ -18,6 +18,7 @@
  * which has a static size.
  */
 #include "lock.h"
+#include "allocation.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,8 +117,15 @@ typedef struct PREFIX(_table_struct)
 	struct PREFIX(_table_cell_struct) *table;
 } PREFIX(_table);
 
-static struct PREFIX(_table_cell_struct) *PREFIX(alloc_cells)(PREFIX(_table) *table, int count)
+static struct PREFIX(_table_cell_struct) *PREFIX(alloc_cells)(PREFIX(_table) *table, uint32_t count)
 {
+	IF_NO_GC((void)table;)
+	size_t bytes;
+	if (!objc2_size_multiply((size_t)count, sizeof(struct PREFIX(_table_cell_struct)), &bytes))
+	{
+		return NULL;
+	}
+	(void)bytes;
 #	if defined(ENABLE_GC) && defined(MAP_TABLE_TYPES_BITMAP)
 	return GC_CALLOC_EXPLICITLY_TYPED(count,
 			sizeof(struct PREFIX(_table_cell_struct)), table->descr);
@@ -128,7 +136,9 @@ static struct PREFIX(_table_cell_struct) *PREFIX(alloc_cells)(PREFIX(_table) *ta
 
 static PREFIX(_table) *PREFIX(_create)(uint32_t capacity)
 {
+	if (capacity == 0) { return NULL; }
 	PREFIX(_table) *table = CALLOC(1, sizeof(PREFIX(_table)));
+	if (NULL == table) { return NULL; }
 #	ifndef MAP_TABLE_NO_LOCK
 	INIT_LOCK(table->lock);
 #	endif
@@ -139,6 +149,14 @@ static PREFIX(_table) *PREFIX(_create)(uint32_t capacity)
 			sizeof(struct PREFIX(_table_cell_struct)) / sizeof (void*));
 #	endif
 	table->table = PREFIX(alloc_cells)(table, capacity);
+	if (NULL == table->table)
+	{
+#	ifndef MAP_TABLE_NO_LOCK
+		DESTROY_LOCK(table->lock);
+#	endif
+		IF_NO_GC(free(table);)
+		return NULL;
+	}
 	table->table_size = capacity;
 	return table;
 }
@@ -166,32 +184,40 @@ static int PREFIX(_insert)(PREFIX(_table) *table, MAP_TABLE_VALUE_TYPE value);
 
 static int PREFIX(_table_resize)(PREFIX(_table) *table)
 {
+	if ((table->table_size == 0) || (table->table_size > UINT32_MAX / 2))
+	{
+		return 0;
+	}
+	uint32_t newSize = table->table_size * 2;
 	struct PREFIX(_table_cell_struct) *newArray =
-		PREFIX(alloc_cells)(table, table->table_size * 2);
+		PREFIX(alloc_cells)(table, newSize);
 	if (NULL == newArray) { return 0; }
 
 	// Allocate a new table structure and move the array into that.  Now
 	// lookups will try using that one, if possible.
 	PREFIX(_table) *copy = CALLOC(1, sizeof(PREFIX(_table)));
+	if (NULL == copy)
+	{
+		IF_NO_GC(free(newArray);)
+		return 0;
+	}
 	memcpy(copy, table, sizeof(PREFIX(_table)));
 	table->old = copy;
 
 	// Now we make the original table structure point to the new (empty) array.
 	table->table = newArray;
-	table->table_size *= 2;
+	table->table_size = newSize;
 	// The table currently has no entries; the copy has them all.
 	table->table_used = 0;
 
 	// Finally, copy everything into the new table
 	// Note: we should really do this in a background thread.  At this stage,
 	// we can do the updates safely without worrying about read contention.
-	int copied = 0;
 	for (uint32_t i=0 ; i<copy->table_size ; i++)
 	{
 		MAP_TABLE_VALUE_TYPE value = copy->table[i].value;
 		if (!MAP_TABLE_VALUE_NULL(value))
 		{
-			copied++;
 			PREFIX(_insert)(table, value);
 		}
 	}
@@ -230,7 +256,7 @@ static int PREFIX(_table_move_gap)(PREFIX(_table) *table, uint32_t fromHash,
 		if (MAP_TABLE_HASH_VALUE(cell->value) == hash)
 		{
 			emptyCell->value = cell->value;
-			cell->secondMaps |= (1 << ((fromHash - hash) - 1));
+			cell->secondMaps |= (UINT32_C(1) << ((fromHash - hash) - 1));
 			cell->value = MAP_TABLE_VALUE_PLACEHOLDER;
 			if (hash - toHash < 32)
 			{
@@ -244,9 +270,9 @@ static int PREFIX(_table_move_gap)(PREFIX(_table) *table, uint32_t fromHash,
 			PREFIX(_table_cell) hopCell = PREFIX(_table_lookup)(table, hash+hop);
 			emptyCell->value = hopCell->value;
 			// Update the hop bit for the new offset
-			cell->secondMaps |= (1 << ((fromHash - hash) - 1));
+			cell->secondMaps |= (UINT32_C(1) << ((fromHash - hash) - 1));
 			// Clear the hop bit in the original cell
-			cell->secondMaps &= ~(1 << (hop - 1));
+			cell->secondMaps &= ~(UINT32_C(1) << (hop - 1));
 			hopCell->value = MAP_TABLE_VALUE_PLACEHOLDER;
 			if (hash - toHash < 32)
 			{
@@ -293,7 +319,7 @@ static int PREFIX(_insert)(PREFIX(_table) *table,
 			PREFIX(_table_lookup)(table, hash+i);
 		if (MAP_TABLE_VALUE_NULL(second->value))
 		{
-			cell->secondMaps |= (1 << (i-1));
+			cell->secondMaps |= (UINT32_C(1) << (i-1));
 			second->value = value;
 			table->table_used++;
 			MAP_UNLOCK();
@@ -306,11 +332,13 @@ static int PREFIX(_insert)(PREFIX(_table) *table,
 	 * to reduce contention.  A hopscotch hash table starts to degrade in
 	 * performance at around 90% capacity, so stay below that.
 	 */
-	if (table->table_used > (0.8 * TABLE_SIZE(table)))
+	if (((uint64_t)table->table_used * 5) > ((uint64_t)TABLE_SIZE(table) * 4))
 	{
-		PREFIX(_table_resize)(table);
-		MAP_UNLOCK();
-		return PREFIX(_insert)(table, value);
+		if (PREFIX(_table_resize)(table))
+		{
+			MAP_UNLOCK();
+			return PREFIX(_insert)(table, value);
+		}
 	}
 	/* If this virtual cell is full, rebalance the hash from this point and
 	 * try again. */
@@ -353,7 +381,7 @@ static void *PREFIX(_table_get_cell)(PREFIX(_table) *table, const void *key)
 				return hopCell;
 			}
 			// Clear the most significant bit and try again.
-			jump &= ~(1 << (hop-1));
+			jump &= ~(UINT32_C(1) << (hop-1));
 		}
 	}
 #ifndef MAP_TABLE_STATIC_SIZE
@@ -375,7 +403,7 @@ static void PREFIX(_table_move_second)(PREFIX(_table) *table,
 	PREFIX(_table_cell) hopCell = 
 		PREFIX(_table_lookup)(table, (emptyCell - table->table) + hop);
 	emptyCell->value = hopCell->value;
-	emptyCell->secondMaps &= ~(1 << (hop-1));
+	emptyCell->secondMaps &= ~(UINT32_C(1) << (hop-1));
 	if (0 == hopCell->secondMaps)
 	{
 		hopCell->value = MAP_TABLE_VALUE_PLACEHOLDER;
@@ -390,14 +418,14 @@ static void PREFIX(_remove)(PREFIX(_table) *table, void *key)
 {
 	MAP_LOCK();
 	PREFIX(_table_cell) cell = PREFIX(_table_get_cell)(table, key);
-	if (NULL == cell) { return; }
+	if (NULL == cell) { MAP_UNLOCK(); return; }
 
 	uint32_t hash = MAP_TABLE_HASH_KEY(key);
 	PREFIX(_table_cell) baseCell = PREFIX(_table_lookup)(table, hash);
 	if (baseCell && baseCell != cell)
 	{
 		uint32_t displacement = (cell - baseCell + table->table_size) % table->table_size;
-		uint32_t jump = 1 << (displacement - 1);
+		uint32_t jump = UINT32_C(1) << (displacement - 1);
 		if ((baseCell->secondMaps & jump))
 		{
 			// If we are removing a cell stored adjacent to its base due to hash
@@ -450,12 +478,16 @@ __attribute__((unused))
 static void PREFIX(_table_set)(PREFIX(_table) *table, const void *key,
 		MAP_TABLE_VALUE_TYPE value)
 {
+	MAP_LOCK();
 	PREFIX(_table_cell) cell = PREFIX(_table_get_cell)(table, key);
 	if (NULL == cell)
 	{
-		PREFIX(_insert)(table, value);
+		(void)PREFIX(_insert)(table, value);
+		MAP_UNLOCK();
+		return;
 	}
 	cell->value = value;
+	MAP_UNLOCK();
 }
 
 __attribute__((unused))
@@ -531,6 +563,7 @@ static MAP_TABLE_VALUE_TYPE
 PREFIX(_current)(PREFIX(_table) *table,
                     struct PREFIX(_table_enumerator) **state)
 {
+	(void)table;
 #ifdef MAP_TABLE_ACCESS_BY_REFERENCE
 	return &(*state)->table->table[(*state)->index].value;
 #else

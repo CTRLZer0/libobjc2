@@ -246,7 +246,7 @@ static void deallocHiddenClass(id obj, SEL _cmd)
 	// After calling [super dealloc], the object will no longer exist.
 	// Free the hidden class.
 	struct reference_list *list = static_cast<struct reference_list *>(object_getIndexedIvars(hiddenClass));
-	DESTROY_LOCK(&list->lock);
+	DESTROY_LOCK(list->lock);
 	cleanupReferenceList(list);
 	freeReferenceList(list->next);
 	//fprintf(stderr, "Deallocating dtable %p\n", hiddenClass->dtable);

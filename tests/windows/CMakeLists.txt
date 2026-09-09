@@ -47,3 +47,10 @@ add_mosaic_runtime_test(
 add_mosaic_runtime_test(
 	mosaic_objc_fast_paths_contract
 	fast_paths_contract.c)
+
+add_mosaic_runtime_test(
+	mosaic_objc_hash_table_contract
+	hash_table_contract.c)
+target_include_directories(mosaic_objc_hash_table_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/support"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/exceptions")

@@ -12,7 +12,7 @@ typedef CRITICAL_SECTION mutex_t;
 #	define INIT_LOCK(x) InitializeCriticalSection(&(x))
 #	define LOCK(x) EnterCriticalSection(x)
 #	define UNLOCK(x) LeaveCriticalSection(x)
-#	define DESTROY_LOCK(x) DeleteCriticalSection(x)
+#	define DESTROY_LOCK(x) DeleteCriticalSection(&(x))
 #else
 
 #	include <pthread.h>
@@ -39,7 +39,7 @@ static inline void init_recursive_mutex(pthread_mutex_t *x)
 
 #	define LOCK(x) pthread_mutex_lock(x)
 #	define UNLOCK(x) pthread_mutex_unlock(x)
-#	define DESTROY_LOCK(x) pthread_mutex_destroy(x)
+#	define DESTROY_LOCK(x) pthread_mutex_destroy(&(x))
 #endif
 
 __attribute__((unused)) static void objc_release_lock(void *x)
