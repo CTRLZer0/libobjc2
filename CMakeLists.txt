@@ -282,8 +282,8 @@ endif ()
 
 if (EMBEDDED_BLOCKS_RUNTIME)
 	set(libBlocksRuntime_COMPATIBILITY_HDRS
-		Block.h
-		Block_private.h
+		objc/compat/blocks/Block.h
+		objc/compat/blocks/Block_private.h
 		)
 	list(APPEND libobjc_OBJC_SRCS src/blocks/blocks_runtime.m)
 	list(APPEND libobjc_HDRS objc/blocks_private.h)
