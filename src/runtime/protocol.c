@@ -5,8 +5,10 @@
 #include "lock.h"
 #include "legacy.h"
 #include "crt_compat.h"
+#include "allocation.h"
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 
 #define BUFFER_TYPE struct objc_protocol_list *
 #include "buffer.h"
@@ -314,16 +316,20 @@ struct objc_method_description *protocol_copyMethodDescriptionList(Protocol *p,
 	if (NULL == p) { return NULL; }
 	struct objc_protocol_method_description_list *list =
 		get_method_list(p, isRequiredMethod, isInstanceMethod);
-	if (NULL == list || list->count == 0) { return NULL; }
-
-	*count = list->count;
-	struct objc_method_description *out =
-		calloc(list->count, sizeof(struct objc_method_description));
-	for (int i=0 ; i < (list->count) ; i++)
+	if ((NULL == list) || (list->count <= 0)) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(0, (size_t)list->count,
+	                               sizeof(struct objc_method_description),
+	                               &allocationSize)) { return NULL; }
+	struct objc_method_description *out = malloc(allocationSize);
+	if (NULL == out) { return NULL; }
+	for (int i=0 ; i<list->count ; i++)
 	{
-		out[i].name = protocol_method_at_index(list, i)->selector;
-		out[i].types = sel_getType_np(protocol_method_at_index(list, i)->selector);
+		struct objc_protocol_method_description *method = protocol_method_at_index(list, i);
+		out[i].name = method->selector;
+		out[i].types = sel_getType_np(method->selector);
 	}
+	*count = (unsigned int)list->count;
 	return out;
 }
 
@@ -331,18 +337,19 @@ Protocol*__unsafe_unretained* protocol_copyProtocolList(Protocol *p, unsigned in
 {
 	if (NULL == count) { return NULL; }
 	*count = 0;
-	if (NULL == p) { return NULL; }
-	if (p->protocol_list == NULL || p->protocol_list->count == 0)
-	{
-		return NULL;
-	}
-
-	*count  = p->protocol_list->count;
-	Protocol **out = calloc(p->protocol_list->count, sizeof(Protocol*));
-	for (int i=0 ; i<p->protocol_list->count ; i++)
+	if ((NULL == p) || (NULL == p->protocol_list)) { return NULL; }
+	size_t protocolCount = p->protocol_list->count;
+	if ((0 == protocolCount) || (protocolCount > UINT_MAX)) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(0, protocolCount, sizeof(Protocol*),
+	                               &allocationSize)) { return NULL; }
+	Protocol **out = malloc(allocationSize);
+	if (NULL == out) { return NULL; }
+	for (size_t i=0 ; i<protocolCount ; i++)
 	{
 		out[i] = (Protocol*)p->protocol_list->list[i];
 	}
+	*count = (unsigned int)protocolCount;
 	return out;
 }
 
@@ -352,40 +359,36 @@ objc_property_t *protocol_copyPropertyList2(Protocol *p, unsigned int *outCount,
 	if (NULL == outCount) { return NULL; }
 	*outCount = 0;
 	if (NULL == p) { return NULL; }
+	if (!protocol_hasOptionalMethodsAndProperties(p)) { return NULL; }
+	if (!isInstanceProperty && !protocol_hasClassProperties(p)) { return NULL; }
 	struct objc_property_list *properties =
 	    isInstanceProperty ?
 	        (isRequiredProperty ? p->properties : p->optional_properties) :
 	        (isRequiredProperty ? p->class_properties : p->optional_class_properties);
-	// If it's an old protocol, it won't have any of the other options.
-	if (!isRequiredProperty && !isInstanceProperty &&
-	    !protocol_hasOptionalMethodsAndProperties(p))
+	if (NULL == properties) { return NULL; }
+	size_t count = 0;
+	for (struct objc_property_list *list = properties; list != NULL; list = list->next)
 	{
-		return NULL;
+		if ((list->count < 0) || (list->size < (int)sizeof(struct objc_property))) { return NULL; }
+		if ((size_t)list->count > UINT_MAX - count) { return NULL; }
+		count += (size_t)list->count;
 	}
-	if (properties == NULL)
+	if ((0 == count) || (count > UINT_MAX)) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(0, count, sizeof(objc_property_t),
+	                               &allocationSize)) { return NULL; }
+	objc_property_t *out = malloc(allocationSize);
+	if (NULL == out) { return NULL; }
+	size_t index = 0;
+	for (struct objc_property_list *list = properties; list != NULL; list = list->next)
 	{
-		return NULL;
-	}
-	unsigned int count = 0;
-	for (struct objc_property_list *l=properties ; l!=NULL ; l=l->next)
-	{
-		count += l->count;
-	}
-	if (0 == count)
-	{
-		return NULL;
-	}
-	objc_property_t *list = calloc(count, sizeof(objc_property_t));
-	unsigned int out = 0;
-	for (struct objc_property_list *l=properties ; l!=NULL ; l=l->next)
-	{
-		for (int i=0 ; i<l->count ; i++)
+		for (int i=0 ; i<list->count ; i++)
 		{
-			list[out++] = property_at_index(l, i);
+			out[index++] = property_at_index(list, i);
 		}
 	}
-	*outCount = count;
-	return list;
+	*outCount = (unsigned int)count;
+	return out;
 }
 
 objc_property_t *protocol_copyPropertyList(Protocol *p,
@@ -511,29 +514,26 @@ BOOL protocol_isEqual(Protocol *p, Protocol *other)
 
 Protocol*__unsafe_unretained* objc_copyProtocolList(unsigned int *outCount)
 {
+	if (NULL != outCount) { *outCount = 0; }
 	LOCK_FOR_SCOPE(&protocol_table_lock);
-	unsigned int total = known_protocol_table->table_used;
-	Protocol **p = calloc(known_protocol_table->table_used, sizeof(Protocol*));
-
-	struct protocol_table_enumerator *e = NULL;
+	size_t total = known_protocol_table->table_used;
+	if ((0 == total) || (total > UINT_MAX)) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(0, total, sizeof(Protocol*),
+	                               &allocationSize)) { return NULL; }
+	Protocol **protocols = malloc(allocationSize);
+	if (NULL == protocols) { return NULL; }
+	struct protocol_table_enumerator *enumerator = NULL;
 	Protocol *next;
-
-	unsigned int count = 0;
-	while ((count < total) && (next = protocol_next(known_protocol_table, &e)))
+	size_t count = 0;
+	while ((count < total) && (next = protocol_next(known_protocol_table, &enumerator)))
 	{
-		p[count++] = next;
+		protocols[count++] = next;
 	}
-	if (NULL != e)
-	{
-		free(e);
-	}
-	if (NULL != outCount)
-	{
-		*outCount = total;
-	}
-	return p;
+	if (NULL != enumerator) { free(enumerator); }
+	if (NULL != outCount) { *outCount = (unsigned int)count; }
+	return protocols;
 }
-
 
 Protocol *objc_allocateProtocol(const char *name)
 {
@@ -552,7 +552,7 @@ void objc_registerProtocol(Protocol *proto)
 {
 	if (NULL == proto) { return; }
 	LOCK_FOR_SCOPE(&protocol_table_lock);
-	if (objc_getProtocol(proto->name) != NULL) { return; }
+	if ((NULL == proto->name) || (protocol_for_name(proto->name) != NULL)) { return; }
 	if (proto->isa != (id)&_OBJC_CLASS___IncompleteProtocol) { return; }
 	proto->isa = (id)&_OBJC_CLASS_Protocol;
 	protocol_table_insert(proto);
@@ -597,36 +597,54 @@ void protocol_addMethodDescription(Protocol *aProtocol,
 			listPtr = &aProtocol->optional_class_methods;
 		}
 	}
-	if (NULL == *listPtr)
+	SEL typedSelector = sel_registerTypedName_np(sel_getName(name), types);
+	char *typeCopy = objc2_strdup(types);
+	if ((NULL == typedSelector) || (NULL == typeCopy))
 	{
-		// FIXME: Factor this out, we do the same thing in multiple places.
-		*listPtr = calloc(1, sizeof(struct objc_protocol_method_description_list) +
-				sizeof(struct objc_protocol_method_description));
-		(*listPtr)->count = 1;
-		(*listPtr)->size = sizeof(struct objc_protocol_method_description);
+		free(typeCopy);
+		return;
 	}
-	else
+	struct objc_protocol_method_description_list *oldList = *listPtr;
+	if ((oldList != NULL) && ((oldList->count < 0) ||
+	    (oldList->size < (int)sizeof(struct objc_protocol_method_description))))
 	{
-		(*listPtr)->count++;
-		*listPtr = realloc(*listPtr, sizeof(struct objc_protocol_method_description_list) +
-				sizeof(struct objc_protocol_method_description) * (*listPtr)->count);
+		free(typeCopy);
+		return;
 	}
-	struct objc_protocol_method_description_list *list = *listPtr;
-	int index = list->count-1;
-	protocol_method_at_index(list, index)->selector = sel_registerTypedName_np(sel_getName(name), types);
-	protocol_method_at_index(list, index)->types = types;
+	size_t oldCount = oldList ? (size_t)oldList->count : 0;
+	if (oldCount >= INT_MAX) { free(typeCopy); return; }
+	size_t stride = oldList ? (size_t)oldList->size : sizeof(struct objc_protocol_method_description);
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_protocol_method_description_list),
+	                               oldCount + 1, stride, &allocationSize))
+	{
+		free(typeCopy);
+		return;
+	}
+	struct objc_protocol_method_description_list *list = realloc(oldList, allocationSize);
+	if (NULL == list) { free(typeCopy); return; }
+	if (0 == oldCount) { list->size = sizeof(struct objc_protocol_method_description); }
+	list->count = (int)(oldCount + 1);
+	*listPtr = list;
+	int index = (int)oldCount;
+	struct objc_protocol_method_description *method = protocol_method_at_index(list, index);
+	memset(method, 0, stride);
+	method->selector = typedSelector;
+	method->types = typeCopy;
 }
 void protocol_addProtocol(Protocol *aProtocol, Protocol *addition)
 {
 	if ((NULL == aProtocol) || (NULL == addition)) { return; }
 	if (aProtocol->isa != (id)&_OBJC_CLASS___IncompleteProtocol) { return; }
 	size_t oldCount = aProtocol->protocol_list ? aProtocol->protocol_list->count : 0;
-	size_t newCount = oldCount + 1;
-	struct objc_protocol_list *updated = realloc(aProtocol->protocol_list,
-		sizeof(struct objc_protocol_list) + newCount * sizeof(Protocol*));
+	if (oldCount == SIZE_MAX) { return; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_protocol_list), oldCount + 1,
+	                               sizeof(Protocol*), &allocationSize)) { return; }
+	struct objc_protocol_list *updated = realloc(aProtocol->protocol_list, allocationSize);
 	if (NULL == updated) { return; }
 	if (0 == oldCount) { updated->next = NULL; }
-	updated->count = newCount;
+	updated->count = oldCount + 1;
 	updated->list[oldCount] = (Protocol*)addition;
 	aProtocol->protocol_list = updated;
 }
@@ -639,27 +657,32 @@ void protocol_addProperty(Protocol *aProtocol,
 {
 	if ((NULL == aProtocol) || (NULL == name)) { return; }
 	if (aProtocol->isa != (id)&_OBJC_CLASS___IncompleteProtocol) { return; }
-	if (!isInstanceProperty) { return; }
-	struct objc_property_list **listPtr = 
+	struct objc_property_list **listPtr =
 	    isInstanceProperty ?
 	        (isRequiredProperty ? &aProtocol->properties : &aProtocol->optional_properties) :
 	        (isRequiredProperty ? &aProtocol->class_properties : &aProtocol->optional_class_properties);
-	if (NULL == *listPtr)
+	struct objc_property_list *oldList = *listPtr;
+	if ((oldList != NULL) && ((oldList->count < 0) ||
+	    (oldList->size < (int)sizeof(struct objc_property)))) { return; }
+	size_t oldCount = oldList ? (size_t)oldList->count : 0;
+	if (oldCount >= INT_MAX) { return; }
+	size_t stride = oldList ? (size_t)oldList->size : sizeof(struct objc_property);
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_property_list), oldCount + 1,
+	                               stride, &allocationSize)) { return; }
+	struct objc_property_list *list = realloc(oldList, allocationSize);
+	if (NULL == list) { return; }
+	if (0 == oldCount)
 	{
-		*listPtr = calloc(1, sizeof(struct objc_property_list) + sizeof(struct objc_property));
-		(*listPtr)->size = sizeof(struct objc_property);
-		(*listPtr)->count = 1;
+		list->size = sizeof(struct objc_property);
+		list->next = NULL;
 	}
-	else
-	{
-		(*listPtr)->count++;
-		*listPtr = realloc(*listPtr, sizeof(struct objc_property_list) +
-				sizeof(struct objc_property) * (*listPtr)->count);
-	}
-	struct objc_property_list *list = *listPtr;
-	int index = list->count-1;
-	struct objc_property p = propertyFromAttrs(attributes, attributeCount, name);
-	assert(list->size == sizeof(p));
-	memcpy(&(list->properties[index]), &p, sizeof(p));
+	list->count = (int)(oldCount + 1);
+	*listPtr = list;
+	int index = (int)oldCount;
+	struct objc_property property = propertyFromAttrs(attributes, attributeCount, name);
+	struct objc_property *slot = property_at_index(list, index);
+	memset(slot, 0, stride);
+	memcpy(slot, &property, sizeof(property));
 }
 

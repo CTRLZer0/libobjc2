@@ -32,6 +32,8 @@ add_mosaic_runtime_test(
 add_mosaic_runtime_test(
 	mosaic_objc_ivar_contract
 	ivar_contract.c)
+target_include_directories(mosaic_objc_ivar_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/runtime")
 add_mosaic_runtime_test(
 	mosaic_objc_weak_contract
 	weak_contract.c)

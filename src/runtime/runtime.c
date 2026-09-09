@@ -8,6 +8,7 @@
 #include "dtable.h"
 #include "gc_ops.h"
 #include "crt_compat.h"
+#include "allocation.h"
 
 /* Make glibc export objc2_strdup() */
 
@@ -19,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 
 #define CHECK_ARG(arg) if (0 == arg) { return 0; }
 
@@ -102,55 +104,69 @@ BOOL class_addIvar(Class cls, const char *name, size_t size, uint8_t alignment,
 	CHECK_ARG(cls);
 	CHECK_ARG(name);
 	CHECK_ARG(types);
-	// You can't add ivars to initialized classes.  Note: We can't use the
-	// resolved flag here because class_getInstanceVariable() sets it.
-	if (objc_test_class_flag(cls, objc_class_flag_initialized))
+	if (objc_test_class_flag(cls, objc_class_flag_initialized)) { return NO; }
+	if (class_getInstanceVariable(cls, name) != NULL) { return NO; }
+	if ((size > UINT32_MAX) || (cls->instance_size < 0)) { return NO; }
+	if (alignment >= (sizeof(size_t) * CHAR_BIT)) { return NO; }
+
+	size_t byteAlignment = ((size_t)1) << alignment;
+	size_t currentSize = (size_t)cls->instance_size;
+	if (currentSize > SIZE_MAX - (byteAlignment - 1)) { return NO; }
+	size_t offset = (currentSize + byteAlignment - 1) & ~(byteAlignment - 1);
+	if ((size > SIZE_MAX - offset) || (offset + size > LONG_MAX)) { return NO; }
+
+	char *nameCopy = objc2_strdup(name);
+	char *typeCopy = objc2_strdup(types);
+	if ((NULL == nameCopy) || (NULL == typeCopy))
 	{
+		free(nameCopy);
+		free(typeCopy);
 		return NO;
 	}
 
-	if (class_getInstanceVariable(cls, name) != NULL)
+	struct objc_ivar_list *oldList = cls->ivars;
+	if ((oldList != NULL) && ((oldList->count < 0) ||
+	    (oldList->size < sizeof(struct objc_ivar))))
 	{
+		free(nameCopy);
+		free(typeCopy);
 		return NO;
 	}
-
-	struct objc_ivar_list *ivarlist = cls->ivars;
-
-	if (NULL == ivarlist)
+	size_t oldCount = oldList ? (size_t)oldList->count : 0;
+	if (oldCount >= INT_MAX)
 	{
-		cls->ivars = malloc(sizeof(struct objc_ivar_list) + sizeof(struct objc_ivar));
-		cls->ivars->size = sizeof(struct objc_ivar);
-		cls->ivars->count = 1;
+		free(nameCopy);
+		free(typeCopy);
+		return NO;
 	}
-	else
+	size_t stride = oldList ? oldList->size : sizeof(struct objc_ivar);
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_ivar_list), oldCount + 1,
+	                               stride, &allocationSize))
 	{
-		ivarlist->count++;
-		// objc_ivar_list contains one ivar.  Others follow it.
-		cls->ivars = realloc(ivarlist, sizeof(struct objc_ivar_list) +
-				(ivarlist->count) * sizeof(struct objc_ivar));
+		free(nameCopy);
+		free(typeCopy);
+		return NO;
 	}
-	Ivar ivar = ivar_at_index(cls->ivars, cls->ivars->count - 1);
-	ivar->name = objc2_strdup(name);
-	ivar->type = objc2_strdup(types);
+	struct objc_ivar_list *updated = realloc(oldList, allocationSize);
+	if (NULL == updated)
+	{
+		free(nameCopy);
+		free(typeCopy);
+		return NO;
+	}
+	if (0 == oldCount) { updated->size = sizeof(struct objc_ivar); }
+	updated->count = (int)(oldCount + 1);
+	cls->ivars = updated;
+
+	Ivar ivar = ivar_at_index(updated, (int)oldCount);
+	memset(ivar, 0, stride);
+	ivar->name = nameCopy;
+	ivar->type = typeCopy;
 	ivar->size = (uint32_t)size;
-	ivar->flags = 0;
-	ivarSetAlign(ivar, alignment);
-	// Round up the offset of the ivar so it is correctly aligned.
-	long offset = cls->instance_size;
-	if (alignment != 0)
-	{
-		offset >>= alignment;
-
-		if (offset << alignment != cls->instance_size)
-		{
-			offset++;
-		}
-		offset <<= alignment;
-	}
-
+	ivarSetAlign(ivar, byteAlignment);
 	ivar->offset = (int*)(uintptr_t)offset;
-	// Increase the instance size to make space for this.
-	cls->instance_size = offset + size;
+	cls->instance_size = (long)(offset + size);
 	return YES;
 }
 
@@ -174,16 +190,27 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 		}
 	}
 
-	methods = malloc(sizeof(struct objc_method_list) + sizeof(struct objc_method));
+	SEL typedSelector = sel_registerTypedName_np(methodName, types);
+	char *typeCopy = objc2_strdup(types);
+	if ((NULL == typedSelector) || (NULL == typeCopy))
+	{
+		free(typeCopy);
+		return NO;
+	}
+	methods = calloc(1, sizeof(struct objc_method_list) + sizeof(struct objc_method));
+	if (NULL == methods)
+	{
+		free(typeCopy);
+		return NO;
+	}
 	methods->next = cls->methods;
 	methods->size = sizeof(struct objc_method);
-	cls->methods = methods;
-
 	methods->count = 1;
 	struct objc_method *m0 = method_at_index(methods, 0);
-	m0->selector = sel_registerTypedName_np(methodName, types);
-	m0->types = objc2_strdup(types);
+	m0->selector = typedSelector;
+	m0->types = typeCopy;
 	m0->imp = imp;
+	cls->methods = methods;
 
 	if (classHasDtable(cls))
 	{

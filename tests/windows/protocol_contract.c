@@ -43,16 +43,22 @@ int main(void)
     SEL ping = sel_registerName("mosaicProtocolPing:");
     SEL pong = sel_registerName("mosaicProtocolPong:");
     SEL optional = sel_registerName("mosaicProtocolOptional");
-    CHECK(ping != NULL && pong != NULL && optional != NULL);
+    SEL class_method = sel_registerName("mosaicProtocolClassMethod");
+    CHECK(ping != NULL && pong != NULL && optional != NULL && class_method != NULL);
 
     protocol_addMethodDescription(base, ping, "v@:@", YES, YES);
     protocol_addMethodDescription(base, pong, "v@:@", YES, YES);
     protocol_addMethodDescription(base, optional, "v@:", NO, YES);
+    char temporary_types[] = "v@:";
+    protocol_addMethodDescription(base, class_method, temporary_types, YES, NO);
+    temporary_types[0] = 'i';
 
     objc_property_attribute_t object_attr[] = {{"T", "@"}};
     protocol_addProperty(base, "firstProperty", object_attr, 1, YES, YES);
     protocol_addProperty(base, "secondProperty", object_attr, 1, YES, YES);
     protocol_addProperty(base, "optionalProperty", object_attr, 1, NO, YES);
+    protocol_addProperty(base, "requiredClassProperty", object_attr, 1, YES, NO);
+    protocol_addProperty(base, "optionalClassProperty", object_attr, 1, NO, NO);
     objc_registerProtocol(base);
 
     CHECK(objc_getProtocol("MosaicProtocolContractBase") == base);
@@ -65,6 +71,7 @@ int main(void)
     CHECK(strcmp(description.types, "v@:@") == 0);
     description = protocol_getMethodDescription(base, optional, NO, YES);
     CHECK(description.name == optional);
+    CHECK(strcmp(_protocol_getMethodTypeEncoding(base, class_method, YES, NO), "v@:") == 0);
 
     unsigned int method_count = 0;
     struct objc_method_description *methods =
@@ -84,6 +91,16 @@ int main(void)
     free(properties);
     CHECK(protocol_getProperty(base, "secondProperty", YES, YES) != NULL);
     CHECK(protocol_getProperty(base, "optionalProperty", NO, YES) != NULL);
+    properties = protocol_copyPropertyList2(base, &property_count, YES, NO);
+    CHECK(property_count == 1 && properties != NULL);
+    CHECK(property_list_contains(properties, property_count, "requiredClassProperty"));
+    free(properties);
+    properties = protocol_copyPropertyList2(base, &property_count, NO, NO);
+    CHECK(property_count == 1 && properties != NULL);
+    CHECK(property_list_contains(properties, property_count, "optionalClassProperty"));
+    free(properties);
+    CHECK(protocol_getProperty(base, "requiredClassProperty", YES, NO) != NULL);
+    CHECK(protocol_getProperty(base, "optionalClassProperty", NO, NO) != NULL);
     CHECK(protocol_getProperty(base, NULL, YES, YES) == NULL);
 
     unsigned int empty_count = 17;
