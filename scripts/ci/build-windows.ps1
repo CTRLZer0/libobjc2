@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
+# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# and provenance details.
 param(
     [Parameter(Mandatory = $true)][string]$ClangCl,
     [ValidateSet("Debug", "Release")][string]$Configuration = "Release",
     [string]$BuildDir = "out/ci-windows",
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$WarningsAsErrors,
+    [switch]$BuildBenchmarks
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,12 +47,34 @@ foreach ($line in $environment) {
 if (-not (Test-Path $ClangCl)) {
     throw "clang-cl not found: $ClangCl"
 }
-& $ClangCl --version | Select-Object -First 1
+$clangPath = (Resolve-Path $ClangCl).Path
+& $clangPath --version | Select-Object -First 1
 New-Item -ItemType Directory -Force -Path $build | Out-Null
+
+$cache = Join-Path $build "CMakeCache.txt"
+if (Test-Path $cache) {
+    $compilerEntry = Select-String -Path $cache -Pattern '^CMAKE_C_COMPILER:[^=]+=(.+)$' |
+        Select-Object -First 1
+    if ($compilerEntry) {
+        $cachedCompiler = $compilerEntry.Matches[0].Groups[1].Value -replace '/', '\'
+        $cachedCompiler = [IO.Path]::GetFullPath($cachedCompiler)
+        if (-not [string]::Equals($cachedCompiler, $clangPath,
+                [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host "Compiler changed; resetting CMake cache: $cachedCompiler -> $clangPath"
+            Remove-Item -Force $cache
+            Remove-Item -Recurse -Force (Join-Path $build "CMakeFiles") -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+$warnings = if ($WarningsAsErrors) { "ON" } else { "OFF" }
+$benchmarks = if ($BuildBenchmarks) { "ON" } else { "OFF" }
 & cmake -S (Join-Path $repo "msvc/mosaic") -B $build -G Ninja `
-    "-DCMAKE_C_COMPILER=$ClangCl" `
+    "-DCMAKE_C_COMPILER=$clangPath" `
     "-DCMAKE_BUILD_TYPE=$Configuration" `
-    "-DBUILD_TESTING=ON"
+    "-DBUILD_TESTING=ON" `
+    "-DMOSAIC_LIBOBJC2_WARNINGS_AS_ERRORS=$warnings" `
+    "-DMOSAIC_LIBOBJC2_BUILD_BENCHMARKS=$benchmarks"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
 
 & cmake --build $build --config $Configuration --parallel

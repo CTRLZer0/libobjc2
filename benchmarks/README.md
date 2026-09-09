@@ -16,3 +16,14 @@ Initial benchmark targets:
 Benchmarks should use the same low-level C / Objective-C style as the runtime
 and tests. A benchmark is not a correctness test; every optimized behavior must
 also remain covered by `tests/`.
+
+## Windows hot paths
+
+Configure the Mosaic runtime with `MOSAIC_LIBOBJC2_BUILD_BENCHMARKS=ON` or
+pass `-BuildBenchmarks` to `scripts/ci/build-windows.ps1`. The resulting
+`mosaic_objc_runtime_hotpaths` executable measures `object_getClass`,
+`object_setClass`, `objc_getClass`, and repeated selector registration.
+
+The optional first argument controls the iteration count (default: 5,000,000).
+Treat the output as a relative regression signal on the same machine and build
+configuration, not as a cross-machine performance guarantee.

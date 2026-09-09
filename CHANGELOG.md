@@ -14,6 +14,7 @@ Original upstream announcements remain preserved under
 - Explicit `mosaic_objc_runtime_initialize()` host initialization API.
 - Centralized runtime contract suite under `tests/windows/`.
 - Dedicated `benchmarks/` area for performance regression coverage.
+- Windows runtime hot-path benchmark for class access, class lookup and selector lookup.
 - Central source manifest shared by supported build entry points.
 - Reproducible PowerShell entry points for LLVM installation, Windows build,
   tests and release packaging.
@@ -30,5 +31,7 @@ Original upstream announcements remain preserved under
 - Runtime typing updated for clean compilation across Clang 20 and LLVM 23.1.1.
 - Windows CRT portability and constant-expression cleanup removes legacy LLVM 23 diagnostics without suppressing warnings.
 - Raw Objective-C class access now uses alias-safe internal accessors; block class symbols use consistent typing and legacy protocol root classes are explicit.
+- Protocol2 static-library registration, dynamic protocol list growth and copy APIs are hardened and covered by Windows contract tests.
+- LLVM 23 Windows CI treats runtime compiler warnings as errors, preventing diagnostic debt from being reintroduced.
 - Project documentation now describes current CI / release behavior rather than
   relying on inherited release announcements.

@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
+# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# and provenance details.
 cmake_minimum_required(VERSION 3.24)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -12,6 +15,11 @@ endif()
 set(MOSAIC_LIBOBJC2_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
 set(LIBOBJC2_SOURCE_ROOT "${MOSAIC_LIBOBJC2_ROOT}")
 include("${MOSAIC_LIBOBJC2_ROOT}/CMake/RuntimeSources.cmake")
+
+option(MOSAIC_LIBOBJC2_WARNINGS_AS_ERRORS
+    "Treat Mosaic runtime compiler warnings as errors" OFF)
+option(MOSAIC_LIBOBJC2_BUILD_BENCHMARKS
+    "Build Mosaic runtime microbenchmarks" OFF)
 
 set(MOSAIC_LIBOBJC2_CLANG_CL "" CACHE FILEPATH
     "Private clang-cl used to compile the Mosaic Objective-C runtime")
@@ -92,7 +100,8 @@ foreach(_source IN LISTS MOSAIC_LIBOBJC2_SOURCES)
     add_custom_command(
         OUTPUT "${_object}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_object_dir}"
-        COMMAND "${MOSAIC_LIBOBJC2_CLANG_CL}" /nologo /W3 /c
+        COMMAND "${MOSAIC_LIBOBJC2_CLANG_CL}" /nologo /W3
+            "$<$<BOOL:${MOSAIC_LIBOBJC2_WARNINGS_AS_ERRORS}>:/WX>" /c
             "${_source}" "/Fo${_object}"
             ${MOSAIC_LIBOBJC2_INCLUDE_FLAGS}
             ${MOSAIC_LIBOBJC2_DEFINE_FLAGS}
@@ -121,4 +130,9 @@ if(BUILD_TESTING)
     add_subdirectory(
         "${MOSAIC_LIBOBJC2_ROOT}/tests/windows"
         "${CMAKE_CURRENT_BINARY_DIR}/tests-windows")
+endif()
+if(MOSAIC_LIBOBJC2_BUILD_BENCHMARKS)
+    add_subdirectory(
+        "${MOSAIC_LIBOBJC2_ROOT}/benchmarks/windows"
+        "${CMAKE_CURRENT_BINARY_DIR}/benchmarks-windows")
 endif()

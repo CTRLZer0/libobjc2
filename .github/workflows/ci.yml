@@ -45,7 +45,8 @@ jobs:
           ./scripts/ci/build-windows.ps1 `
             -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
             -Configuration Debug `
-            -BuildDir 'out/ci-debug'
+            -BuildDir 'out/ci-debug' `
+            -WarningsAsErrors
 
       - name: Build and test Release
         shell: pwsh
@@ -53,4 +54,11 @@ jobs:
           ./scripts/ci/build-windows.ps1 `
             -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
             -Configuration Release `
-            -BuildDir 'out/ci-release'
+            -BuildDir 'out/ci-release' `
+            -WarningsAsErrors `
+            -BuildBenchmarks
+
+      - name: Run hot-path benchmark
+        shell: pwsh
+        run: |
+          ./out/ci-release/benchmarks-windows/mosaic_objc_runtime_hotpaths.exe 1000000
