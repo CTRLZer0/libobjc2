@@ -31,7 +31,6 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 			}
 			ivar_start = super->instance_size;
 		}
-		long class_size = 0 - class->instance_size;
 
 		/* For each instance variable, we add the offset if required (it will be zero
 		* if this class is compiled with a static ivar layout).  We then set the
@@ -53,10 +52,6 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 				// in front of the object.  This doesn't matter for aligment most of
 				// the time, but if we have an instance variable that is a vector type
 				// then we will need to ensure that we are properly aligned again.
-				long ivar_size = (i+1 == class->ivars->count)
-					? (class_size - ivar->offset)
-					: ivar->offset - class->ivars->ivar_list[i+1].offset;
-
 				// TODO: Working around a WinObjC regression that hit after switching to the libobjc2 runtime.
 				// Clang occasionally emits a negative offest for the first ivar in a subclass. 
 				// When that occurs, we need to increase the padding between the superclass and the subclass by that amount to prevent ivars from stomping each other.
@@ -80,6 +75,11 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 				}
 
 #if 0
+				long class_size = 0 - class->instance_size;
+				long ivar_size = (i+1 == class->ivars->count)
+					? (class_size - ivar->offset)
+					: ivar->offset - class->ivars->ivar_list[i+1].offset;
+
 				// We only need to do the realignment for things that are
 				// bigger than a pointer, and we don't need to do it in GC mode
 				// where we don't add any extra padding.

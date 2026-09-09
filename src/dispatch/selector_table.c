@@ -15,6 +15,7 @@
 #include "class.h"
 #include "selector.h"
 #include "visibility.h"
+#include "crt_compat.h"
 
 #ifdef TYPE_DEPENDENT_DISPATCH
 #	define TDD(x) x
@@ -439,12 +440,12 @@ static SEL objc_register_selector_copy(SEL aSel, BOOL copyArgs)
 		}
 		else
 		{
-			copy->name = strdup(aSel->name);
+			copy->name = objc2_strdup(aSel->name);
 			selector_name_copies += strlen(copy->name);
 		}
 		if (copy->types != NULL)
 		{
-			copy->types = strdup(copy->types);
+			copy->types = objc2_strdup(copy->types);
 			selector_name_copies += strlen(copy->types);
 		}
 	}

@@ -1,4 +1,5 @@
 #include "objc/runtime.h"
+#include "crt_compat.h"
 #include "lock.h"
 #include "dtable.h"
 #include "selector.h"
@@ -244,8 +245,8 @@ struct profile_info
 static void profile_init(void)
 {
 	INIT_LOCK(profileLock);
-	profileSymbols = fopen("objc_profile.symbols", "a");
-	profileData = fopen("objc_profile.data", "a");
+	profileSymbols = objc2_fopen("objc_profile.symbols", "a");
+	profileData = objc2_fopen("objc_profile.data", "a");
 	// Write markers indicating a new run.  
 	fprintf(profileSymbols, "=== NEW TRACE ===\n");
 	struct profile_info profile_data = { 0, 0, 0 };

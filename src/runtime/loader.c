@@ -33,13 +33,6 @@ void init_selector_tables(void);
 void init_trampolines(void);
 void objc_send_load_message(Class class);
 
-void log_selector_memory_usage(void);
-
-static void log_memory_stats(void)
-{
-	log_selector_memory_usage();
-}
-
 /* Number of threads that are alive.  */
 int __objc_runtime_threads_alive = 1;			/* !T:MUTEX */
 

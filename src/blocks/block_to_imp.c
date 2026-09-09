@@ -16,6 +16,7 @@
 #include "blocks_runtime.h"
 #include "lock.h"
 #include "visibility.h"
+#include "crt_compat.h"
 
 #ifndef __has_builtin
 #define __has_builtin(x) 0
@@ -231,7 +232,7 @@ PRIVATE size_t lengthOfTypeEncoding(const char *types);
 
 char *block_copyIMPTypeEncoding_np(void*block)
 {
-	char *buffer = strdup(block_getType_np(block));
+	char *buffer = objc2_strdup(block_getType_np(block));
 	if (NULL == buffer) { return NULL; }
 	char *replace = buffer;
 	// Skip the return type

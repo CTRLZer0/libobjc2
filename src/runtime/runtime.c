@@ -5,6 +5,7 @@
  */
 
 #include "objc/runtime.h"
+#include "crt_compat.h"
 #include "selector.h"
 #include "class.h"
 #include "protocol.h"
@@ -14,7 +15,7 @@
 #include "dtable.h"
 #include "gc_ops.h"
 
-/* Make glibc export strdup() */
+/* Make glibc export objc2_strdup() */
 
 #if defined __GLIBC__
 	#define __USE_BSD 1
@@ -148,8 +149,8 @@ BOOL class_addIvar(Class cls, const char *name, size_t size, uint8_t alignment,
 				(ivarlist->count) * sizeof(struct objc_ivar));
 	}
 	Ivar ivar = &cls->ivars->ivar_list[cls->ivars->count - 1];
-	ivar->name = strdup(name);
-	ivar->type = strdup(types);
+	ivar->name = objc2_strdup(name);
+	ivar->type = objc2_strdup(types);
 	// Round up the offset of the ivar so it is correctly aligned.
 	long offset = cls->instance_size;
 	if (alignment != 0)
@@ -195,7 +196,7 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 
 	methods->count = 1;
 	methods->methods[0].selector = sel_registerTypedName_np(methodName, types);
-	methods->methods[0].types = strdup(types);
+	methods->methods[0].types = objc2_strdup(types);
 	methods->methods[0].imp = imp;
 
 	if (objc_test_class_flag(cls, objc_class_flag_resolved))
@@ -747,7 +748,7 @@ Class objc_allocateClassPair(Class superclass, const char *name, size_t extraByt
 		metaClass->isa = (Class)superclass->isa->isa->name;
 		metaClass->super_class = superclass->isa;
 	}
-	metaClass->name = strdup(name);
+	metaClass->name = objc2_strdup(name);
 	metaClass->info = objc_class_flag_meta | objc_class_flag_user_created |
 		objc_class_flag_new_abi;
 	metaClass->dtable = uninstalled_dtable;
@@ -759,7 +760,7 @@ Class objc_allocateClassPair(Class superclass, const char *name, size_t extraByt
 	// the class links are resolved.
 	newClass->super_class = (Nil == superclass) ? Nil : (Class)(superclass->name);
 
-	newClass->name = strdup(name);
+	newClass->name = objc2_strdup(name);
 	newClass->info = objc_class_flag_class | objc_class_flag_user_created |
 		objc_class_flag_new_abi;
 	newClass->dtable = uninstalled_dtable;

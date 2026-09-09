@@ -6,6 +6,7 @@
 #include "lock.h"
 #include "objc/objc-auto.h"
 #include "visibility.h"
+#include "crt_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -651,7 +652,7 @@ PRIVATE void init_gc(void)
 	}
 	if ((envValue = getenv("LIBOBJC_LOG_ALLOCATIONS")))
 	{
-		allocationLog = fopen(envValue, "a");
+		allocationLog = objc2_fopen(envValue, "a");
 	}
 	if ((envValue = getenv("LIBOBJC_CANARIES")))
 	{

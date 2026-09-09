@@ -24,6 +24,7 @@
 */
 
 #include "visibility.h"
+#include "crt_compat.h"
 #include "objc/runtime.h"
 #include "class.h"
 #include "lock.h"
@@ -120,7 +121,7 @@ BOOL class_registerAlias_np(Class class, const char *alias)
 		 */
 		return (class == existingClass);
 	}
-	Alias newAlias = { strdup(alias), class };
+	Alias newAlias = { objc2_strdup(alias), class };
 	alias_table_insert(newAlias);
 	return 1;
 }

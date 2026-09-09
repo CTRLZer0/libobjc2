@@ -188,13 +188,11 @@ static int PREFIX(_table_resize)(PREFIX(_table) *table)
 	// Finally, copy everything into the new table
 	// Note: we should really do this in a background thread.  At this stage,
 	// we can do the updates safely without worrying about read contention.
-	int copied = 0;
 	for (uint32_t i=0 ; i<copy->table_size ; i++)
 	{
 		MAP_TABLE_VALUE_TYPE value = copy->table[i].value;
 		if (!MAP_TABLE_VALUE_NULL(value))
 		{
-			copied++;
 			PREFIX(_insert)(table, value);
 		}
 	}

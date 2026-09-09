@@ -28,5 +28,6 @@ Original upstream announcements remain preserved under
 - Historical upstream documentation moved into `docs/archive/upstream/`.
 - LLVM 23.1.1 selected as the target compiler baseline.
 - Runtime typing updated for clean compilation across Clang 20 and LLVM 23.1.1.
+- Windows CRT portability and constant-expression cleanup removes legacy LLVM 23 diagnostics without suppressing warnings.
 - Project documentation now describes current CI / release behavior rather than
   relying on inherited release announcements.

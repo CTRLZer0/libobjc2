@@ -1,4 +1,5 @@
 #include "objc/runtime.h"
+#include "crt_compat.h"
 #include "protocol.h"
 #include "properties.h"
 #include "class.h"
@@ -509,7 +510,7 @@ Protocol *objc_allocateProtocol(const char *name)
 {
 	if (objc_getProtocol(name) != NULL) { return NULL; }
 	Protocol *p = (Protocol*)class_createInstance((Class)incompleteProtocolClass(), 0);
-	p->name = strdup(name);
+	p->name = objc2_strdup(name);
 	return p;
 }
 void objc_registerProtocol(Protocol *proto)

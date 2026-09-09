@@ -18,7 +18,7 @@
  * The size of the data array.  The sparse array is a tree with this many
  * children at each node depth.
  */
-static const uint32_t data_size = 256;
+enum { data_size = 256 };
 /**
  * The mask used to access the elements in the data array in a sparse array
  * node.

@@ -398,7 +398,7 @@ void method_getArgumentType(Method method,
 	const char *types = findParameterStart(method->types, index);
 	if (NULL == types)
 	{
-		strncpy(dst, "", dst_len);
+		if (dst_len != 0) { memset(dst, 0, dst_len); }
 		return;
 	}
 	size_t length = lengthOfTypeEncoding(types);
