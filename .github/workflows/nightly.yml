@@ -1,0 +1,87 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 23.1.1
+
+jobs:
+  nightly-windows:
+    name: Windows x64 nightly
+    runs-on: windows-2022
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache LLVM
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\llvm\LLVM-${{ env.LLVM_VERSION }}
+          key: llvm-${{ runner.os }}-${{ env.LLVM_VERSION }}
+
+      - name: Install LLVM
+        id: llvm
+        shell: pwsh
+        run: |
+          ./scripts/ci/install-llvm.ps1 `
+            -Version $env:LLVM_VERSION `
+            -InstallRoot "$env:RUNNER_TEMP\llvm"
+
+      - name: Build and test Release
+        shell: pwsh
+        run: |
+          ./scripts/ci/build-windows.ps1 `
+            -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
+            -Configuration Release `
+            -BuildDir 'out/nightly-release' `
+            -WarningsAsErrors
+
+      - name: Package nightly
+        id: package
+        shell: pwsh
+        run: |
+          ./scripts/ci/package-windows.ps1 `
+            -BuildDir 'out/nightly-release' `
+            -Version 'nightly' `
+            -OutputDir 'out/packages'
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libobjc2-nightly-windows-x64
+          path: |
+            ${{ steps.package.outputs.package }}
+            ${{ steps.package.outputs.checksum }}
+          if-no-files-found: error
+
+      - name: Publish rolling nightly release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly $env:GITHUB_SHA
+          git push origin refs/tags/nightly --force
+
+          $notes = "Automated nightly build from commit $env:GITHUB_SHA."
+          gh release view nightly --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit nightly --repo $env:GITHUB_REPOSITORY --prerelease --title "libobjc2 nightly" --notes $notes
+            gh release upload nightly '${{ steps.package.outputs.package }}' '${{ steps.package.outputs.checksum }}' --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create nightly '${{ steps.package.outputs.package }}' '${{ steps.package.outputs.checksum }}' --repo $env:GITHUB_REPOSITORY --prerelease --title "libobjc2 nightly" --notes $notes
+          }
