@@ -1,3 +1,9 @@
+/*
+ * SPDX-License-Identifier: MIT AND AGPL-3.0-only
+ * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+ * See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+ */
+
 #include <stdlib.h>
 #include <assert.h>
 #include "objc/runtime.h"
@@ -91,7 +97,7 @@ void __objc_load_module(struct objc_module_abi_8 *module) {
 	{
 		if (module->version < 11) {
 			// the module has the old selector format
-			objc_register_selector_array8(symbols->selectors,
+			objc_register_selector_array8((struct objc_selector8*)symbols->selectors,
 				symbols->selector_count);
 		}
 		else {

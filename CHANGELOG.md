@@ -24,3 +24,4 @@ Original upstream announcements remain preserved under
 - Test sources centralized under `tests/`.
 - Historical upstream documentation moved into `docs/archive/upstream/`.
 - LLVM 23.1.1 selected as the target compiler baseline.
+- Runtime typing updated for clean compilation across Clang 20 and LLVM 23.1.1.

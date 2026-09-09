@@ -1,3 +1,9 @@
+/*
+ * SPDX-License-Identifier: MIT AND AGPL-3.0-only
+ * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+ * See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+ */
+
 #include "objc/runtime.h"
 #include "selector.h"
 #include "class.h"
@@ -537,7 +543,7 @@ Class class_setSuperclass(Class cls, Class newSuper)
 
 	// Make sure the superclass is initialized if we're initialized.
 	if (objc_test_class_flag(cls, objc_class_flag_initialized)) {
-		objc_send_initialize(newSuper);
+		objc_send_initialize((id)newSuper);
 		// Update the class's dtable to reflect its new superclass's dtable.
 		if (cls->dtable != uninstalled_dtable) {
 			// we can't use objc_update_dtable_for_class here, as it doesn't take into account
