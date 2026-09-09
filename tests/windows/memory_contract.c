@@ -4,7 +4,7 @@
  * Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
  * and provenance details.
  */
-#include <assert.h>
+#include "test_support.h"
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
 #include "objc/mosaic.h"
@@ -28,10 +28,10 @@ static void release_object(id self, SEL _cmd)
 
 static void install_memory_methods(Class cls)
 {
-	assert(class_addMethod(cls, sel_registerName("retain"),
-		(IMP)retain_object, "@@:"));
-	assert(class_addMethod(cls, sel_registerName("release"),
-		(IMP)release_object, "v@:"));
+	CHECK(class_addMethod(cls, sel_registerName("retain"),
+		__builtin_bit_cast(IMP, &retain_object), "@@:"));
+	CHECK(class_addMethod(cls, sel_registerName("release"),
+		__builtin_bit_cast(IMP, &release_object), "v@:"));
 }
 
 int main(void)
@@ -40,26 +40,26 @@ int main(void)
 	mosaic_objc_runtime_initialize();
 
 	Class cls = objc_allocateClassPair(Nil, "MosaicMemoryContract", 0);
-	assert(cls != Nil);
+	CHECK(cls != Nil);
 	install_memory_methods(cls);
 	objc_registerClassPair(cls);
 
 	id holder = class_createInstance(cls, 0);
 	id value = class_createInstance(cls, 0);
-	assert(holder != nil && value != nil);
+	CHECK(holder != nil && value != nil);
 
-	assert(objc_retain(value) == value);
+	CHECK(objc_retain(value) == value);
 	objc_release(value);
-	assert(retains == 1);
-	assert(releases == 1);
+	CHECK(retains == 1);
+	CHECK(releases == 1);
 
 	objc_setAssociatedObject(holder, &key, value, OBJC_ASSOCIATION_RETAIN);
-	assert(object_getClass(holder) == cls);
-	assert(objc_getAssociatedObject(holder, &key) == value);
-	assert(retains == 2);
+	CHECK(object_getClass(holder) == cls);
+	CHECK(objc_getAssociatedObject(holder, &key) == value);
+	CHECK(retains == 2);
 	objc_removeAssociatedObjects(holder);
-	assert(objc_getAssociatedObject(holder, &key) == nil);
-	assert(releases == 2);
+	CHECK(objc_getAssociatedObject(holder, &key) == nil);
+	CHECK(releases == 2);
 
 	object_dispose(value);
 	object_dispose(holder);

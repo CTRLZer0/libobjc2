@@ -4,7 +4,7 @@
  * Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
  * and provenance details.
  */
-#include <assert.h>
+#include "test_support.h"
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
 #include "objc/hooks.h"
@@ -21,16 +21,16 @@ int main(void)
 	_objc_weak_load = weak_load;
 
 	Class cls = objc_allocateClassPair(Nil, "MosaicWeakContract", 0);
-	assert(cls != Nil);
+	CHECK(cls != Nil);
 	objc_registerClassPair(cls);
 
 	id object = class_createInstance(cls, 0);
 	id weak = nil;
-	assert(objc_storeWeak(&weak, object) == object);
-	assert(weak == object);
+	CHECK(objc_storeWeak(&weak, object) == object);
+	CHECK(weak == object);
 
 	objc_delete_weak_refs(object);
-	assert(weak == nil);
+	CHECK(weak == nil);
 	objc_destroyWeak(&weak);
 	object_dispose(object);
 	return 0;

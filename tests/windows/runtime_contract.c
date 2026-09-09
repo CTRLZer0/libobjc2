@@ -24,7 +24,7 @@ int main(void)
 
     SEL sel = sel_registerName("answer");
     if (!sel) return 11;
-    if (!class_addMethod(cls, sel, (IMP)answer, "Q@:")) return 12;
+    if (!class_addMethod(cls, sel, __builtin_bit_cast(IMP, &answer), "Q@:")) return 12;
 
     objc_registerClassPair(cls);
     if ((Class)objc_getClass("MosaicProbe") != cls) return 13;
@@ -34,8 +34,9 @@ int main(void)
     IMP imp = objc_msg_lookup(obj, sel);
     if (!imp) return 15;
 
-    const unsigned long long value =
-        ((unsigned long long (*)(id, SEL))imp)(obj, sel);
+    typedef unsigned long long (*answer_method_t)(id, SEL);
+    answer_method_t typed_imp = __builtin_bit_cast(answer_method_t, imp);
+    const unsigned long long value = typed_imp(obj, sel);
     object_dispose(obj);
 
     printf("objc-runtime-value=%llu\n", value);

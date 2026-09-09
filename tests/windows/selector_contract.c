@@ -4,7 +4,7 @@
  * Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
  * and provenance details.
  */
-#include <assert.h>
+#include "test_support.h"
 #include <string.h>
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
@@ -17,11 +17,11 @@ int main(void)
 	SEL second = sel_registerName("mosaicSelector");
 	SEL other = sel_registerName("mosaicOtherSelector");
 
-	assert(first != NULL);
-	assert(first == second);
-	assert(first != other);
-	assert(sel_isEqual(first, second));
-	assert(!sel_isEqual(first, other));
-	assert(strcmp(sel_getName(first), "mosaicSelector") == 0);
+	CHECK(first != NULL);
+	CHECK(first == second);
+	CHECK(first != other);
+	CHECK(sel_isEqual(first, second));
+	CHECK(!sel_isEqual(first, other));
+	CHECK(strcmp(sel_getName(first), "mosaicSelector") == 0);
 	return 0;
 }
