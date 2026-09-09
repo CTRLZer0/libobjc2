@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  LLVM_VERSION: 23.1.1
+
+jobs:
+  release-windows:
+    name: Windows x64 release
+    runs-on: windows-2022
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache LLVM
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\llvm\LLVM-${{ env.LLVM_VERSION }}
+          key: llvm-${{ runner.os }}-${{ env.LLVM_VERSION }}
+
+      - name: Install LLVM
+        id: llvm
+        shell: pwsh
+        run: |
+          ./scripts/ci/install-llvm.ps1 `
+            -Version $env:LLVM_VERSION `
+            -InstallRoot "$env:RUNNER_TEMP\llvm"
+
+      - name: Build and test Release
+        shell: pwsh
+        run: |
+          ./scripts/ci/build-windows.ps1 `
+            -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
+            -Configuration Release `
+            -BuildDir 'out/release'
+
+      - name: Package release
+        id: package
+        shell: pwsh
+        run: |
+          ./scripts/ci/package-windows.ps1 `
+            -BuildDir 'out/release' `
+            -Version $env:GITHUB_REF_NAME `
+            -OutputDir 'out/packages'
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libobjc2-${{ github.ref_name }}-windows-x64
+          path: |
+            ${{ steps.package.outputs.package }}
+            ${{ steps.package.outputs.checksum }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME '${{ steps.package.outputs.package }}' '${{ steps.package.outputs.checksum }}' --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME '${{ steps.package.outputs.package }}' '${{ steps.package.outputs.checksum }}' --repo $env:GITHUB_REPOSITORY --verify-tag --generate-notes --title "libobjc2 $env:GITHUB_REF_NAME"
+          }

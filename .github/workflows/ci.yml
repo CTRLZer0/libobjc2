@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 23.1.1
+
+jobs:
+  windows-runtime:
+    name: Windows / LLVM 23
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache LLVM
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\llvm\LLVM-${{ env.LLVM_VERSION }}
+          key: llvm-${{ runner.os }}-${{ env.LLVM_VERSION }}
+
+      - name: Install LLVM
+        id: llvm
+        shell: pwsh
+        run: |
+          ./scripts/ci/install-llvm.ps1 `
+            -Version $env:LLVM_VERSION `
+            -InstallRoot "$env:RUNNER_TEMP\llvm"
+
+      - name: Build and test Debug
+        shell: pwsh
+        run: |
+          ./scripts/ci/build-windows.ps1 `
+            -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
+            -Configuration Debug `
+            -BuildDir 'out/ci-debug'
+
+      - name: Build and test Release
+        shell: pwsh
+        run: |
+          ./scripts/ci/build-windows.ps1 `
+            -ClangCl '${{ steps.llvm.outputs.clang_cl }}' `
+            -Configuration Release `
+            -BuildDir 'out/ci-release'
