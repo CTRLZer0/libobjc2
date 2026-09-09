@@ -813,9 +813,7 @@ Class object_setClass(id obj, Class cls)
 	CHECK_ARG(obj);
 	// If this is a small object, then don't set its class.
 	if (isSmallObject(obj)) { return classForObject(obj); }
-	Class oldClass =  obj->isa;
-	obj->isa = cls;
-	return oldClass;
+	return objc_object_setClassRaw(obj, cls);
 }
 
 const char *object_getClassName(id obj)

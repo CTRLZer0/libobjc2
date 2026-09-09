@@ -27,6 +27,7 @@
 #import "objc/runtime.h"
 #import "objc/objc-arc.h"
 #include "blocks_runtime.h"
+#include "block_classes.h"
 #include "gc_ops.h"
 #include "visibility.h"
 #include <stdio.h>
@@ -237,8 +238,6 @@ void *_Block_copy(void *src)
 	struct Block_layout *self = src;
 	struct Block_layout *ret = self;
 
-	extern void _NSConcreteStackBlock;
-	extern void _NSConcreteMallocBlock;
 
 	// If the block is Global, there's no need to copy it on the heap.
 	if(self->isa == &_NSConcreteStackBlock)
@@ -270,8 +269,6 @@ void _Block_release(void *src)
 	if (NULL == src) { return; }
 	struct Block_layout *self = src;
 
-	extern void _NSConcreteStackBlock;
-	extern void _NSConcreteMallocBlock;
 
 	if (&_NSConcreteStackBlock == self->isa)
 	{

@@ -1,6 +1,8 @@
 #ifndef __OBJC_CLASS_H_INCLUDED
 #define __OBJC_CLASS_H_INCLUDED
 #include "visibility.h"
+#include "block_classes.h"
+#include <string.h>
 
 /**
  * Overflow bitfield.  Used for bitfields that are more than 63 bits.
@@ -191,6 +193,26 @@ struct legacy_abi_objc_class
 	void                      *gc_object_type;
 };
 
+static inline Class objc_object_getClassRaw(id obj)
+{
+	Class cls;
+	memcpy(&cls, (const void *)obj, sizeof(cls));
+	return cls;
+}
+
+static inline Class objc_object_setClassRaw(id obj, Class cls)
+{
+	Class oldClass;
+	memcpy(&oldClass, (const void *)obj, sizeof(oldClass));
+	memcpy((void *)obj, &cls, sizeof(cls));
+	return oldClass;
+}
+
+static inline Class objc_class_getClassRaw(Class cls)
+{
+	return (Class)(void *)cls->isa;
+}
+
 
 /**
  * An enumerated type describing all of the valid flags that may be used in the
@@ -300,11 +322,11 @@ static inline Class classForObject(id obj)
 			return SmallObjectClasses[(addr & OBJC_SMALL_OBJECT_MASK)];
 		}
 	}
-	extern struct objc_class _NSConcreteGlobalBlock;
-	if (obj->isa->isa == (Class)&_NSConcreteGlobalBlock) {
-		return (Class)&_NSConcreteGlobalBlock;
+	Class cls = objc_object_getClassRaw(obj);
+	if (objc_class_getClassRaw(cls) == objc_global_block_class()) {
+		return objc_global_block_class();
 	}
-	return obj->isa;
+	return cls;
 }
 
 #endif //__OBJC_CLASS_H_INCLUDED

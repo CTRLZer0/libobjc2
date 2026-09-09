@@ -721,7 +721,6 @@ PRIVATE struct gc_ops gc_ops_boehm =
 	.free           = debug_free,
 };
 
-extern struct objc_class _NSConcreteStackBlock;
 void *_Block_copy(void *src);
 
 PRIVATE void enableGC(BOOL exclude)

@@ -29,5 +29,6 @@ Original upstream announcements remain preserved under
 - LLVM 23.1.1 selected as the target compiler baseline.
 - Runtime typing updated for clean compilation across Clang 20 and LLVM 23.1.1.
 - Windows CRT portability and constant-expression cleanup removes legacy LLVM 23 diagnostics without suppressing warnings.
+- Raw Objective-C class access now uses alias-safe internal accessors; block class symbols use consistent typing and legacy protocol root classes are explicit.
 - Project documentation now describes current CI / release behavior rather than
   relying on inherited release announcements.

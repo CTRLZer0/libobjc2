@@ -199,7 +199,7 @@ static void deallocHiddenClass(id obj, SEL _cmd);
 
 static inline Class findHiddenClass(id obj)
 {
-	Class cls = obj->isa;
+	Class cls = objc_object_getClassRaw(obj);
 	while (Nil != cls && 
 	       !objc_test_class_flag(cls, objc_class_flag_assoc_class))
 	{
@@ -239,8 +239,9 @@ static Class allocateHiddenClass(Class superclass)
 
 static inline Class initHiddenClassForObject(id obj)
 {
-	Class hiddenClass = allocateHiddenClass(obj->isa); 
-	assert(!class_isMetaClass(obj->isa));
+	Class objectClass = objc_object_getClassRaw(obj);
+	Class hiddenClass = allocateHiddenClass(objectClass);
+	assert(!class_isMetaClass(objectClass));
 	static SEL cxx_destruct;
 	if (NULL == cxx_destruct)
 	{
@@ -249,7 +250,7 @@ static inline Class initHiddenClassForObject(id obj)
 	const char *types = sizeof(void*) == 4 ? "v8@0:4" : "v16@0:8";
 	class_addMethod(hiddenClass, cxx_destruct,
 		(IMP)deallocHiddenClass, types);
-	obj->isa = hiddenClass;
+	objc_object_setClassRaw(obj, hiddenClass);
 	return hiddenClass;
 }
 
@@ -290,7 +291,7 @@ static void deallocHiddenClass(id obj, SEL _cmd)
 
 static struct reference_list* referenceListForObject(id object, BOOL create)
 {
-	if (class_isMetaClass(object->isa))
+	if (class_isMetaClass(objc_object_getClassRaw(object)))
 	{
 		Class cls = (Class)object;
 		if ((NULL == cls->extra_data) && create)
@@ -349,11 +350,11 @@ id objc_getAssociatedObject(id object, void *key)
 	{
 		return r->object;
 	}
-	if (class_isMetaClass(object->isa))
+	if (class_isMetaClass(objc_object_getClassRaw(object)))
 	{
 		return nil;
 	}
-	Class cls = object->isa;
+	Class cls = objc_object_getClassRaw(object);
 	while (Nil != cls)
 	{
 		while (Nil != cls && 
@@ -420,9 +421,9 @@ int objc_sync_exit(id object)
 static Class hiddenClassForObject(id object)
 {
 	if (isSmallObject(object)) { return nil; }
-	if (class_isMetaClass(object->isa))
+	if (class_isMetaClass(objc_object_getClassRaw(object)))
 	{
-		return object->isa;
+		return objc_object_getClassRaw(object);
 	}
 	Class hiddenClass = findHiddenClass(object);
 	if (NULL == hiddenClass)
@@ -458,7 +459,7 @@ id object_clone_np(id object)
 	// Make sure that the prototype has a hidden class, so that methods added
 	// to it will appear in the clone.
 	referenceListForObject(object, YES);
-	id new = class_createInstance(object->isa, 0);
+	id new = class_createInstance(objc_object_getClassRaw(object), 0);
 	Class hiddenClass = initHiddenClassForObject(new);
 	struct reference_list *list = object_getIndexedIvars(hiddenClass);
 	INIT_LOCK(list->lock);

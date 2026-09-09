@@ -1,5 +1,6 @@
 #import "objc/runtime.h"
 #import "class.h"
+#import "block_classes.h"
 #import "lock.h"
 #import "objc/blocks_runtime.h"
 #import "dtable.h"

@@ -30,6 +30,7 @@
  * in a category on this class.  This ensures that the runtime sees every
  * protocol at least once and can perform uniquing.
  */
+__attribute__((objc_root_class))
 @interface __ObjC_Protocol_Holder_Ugly_Hack { id isa; } @end
 @implementation __ObjC_Protocol_Holder_Ugly_Hack @end
 

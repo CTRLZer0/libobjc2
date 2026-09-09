@@ -3,6 +3,7 @@
 #import "stdio.h"
 #import "objc/runtime.h"
 #import "objc/blocks_runtime.h"
+#import "block_classes.h"
 #import "nsobject.h"
 #import "class.h"
 #import "selector.h"
@@ -41,9 +42,6 @@ static inline DWORD arc_tls_key_create(void WINAPI(*cleanupFunction)(void*)) {
 
 arc_tls_key_t ARCThreadKey;
 
-extern void _NSConcreteMallocBlock;
-extern void _NSConcreteStackBlock;
-extern struct objc_class _NSConcreteGlobalBlock;
 
 #if !defined(MOSAIC_LIBOBJC2_C_DISPATCH)
 @interface NSAutoreleasePool
@@ -204,15 +202,15 @@ static BOOL useARCAutoreleasePool;
 static inline id retain(id obj)
 {
 	if (isSmallObject(obj)) { return obj; }
-	Class cls = obj->isa;
+	Class cls = objc_object_getClassRaw(obj);
 
-	if ((Class)&_NSConcreteGlobalBlock == cls->isa)
+	if (objc_global_block_class() == objc_class_getClassRaw(cls))
 	{
-		cls = cls->isa;
+		cls = objc_class_getClassRaw(cls);
 	}
 
-	if ((Class)&_NSConcreteMallocBlock == cls ||
-	    (Class)&_NSConcreteStackBlock == cls)
+	if (objc_malloc_block_class() == cls ||
+	    objc_stack_block_class() == cls)
 	{
 		return Block_copy(obj);
 	}
@@ -238,15 +236,15 @@ static inline id retain(id obj)
 static inline void release(id obj)
 {
 	if (isSmallObject(obj)) { return; }
-	Class cls = obj->isa;
+	Class cls = objc_object_getClassRaw(obj);
 
-	if (cls == &_NSConcreteMallocBlock)
+	if (cls == objc_malloc_block_class())
 	{
 		_Block_release(obj);
 		return;
 	}
-	if ((cls == &_NSConcreteStackBlock) ||
-	    (cls->isa == &_NSConcreteGlobalBlock))
+	if ((cls == objc_stack_block_class()) ||
+	    (objc_class_getClassRaw(cls) == objc_global_block_class()))
 	{
 		return;
 	}
@@ -596,7 +594,7 @@ id objc_storeWeak(id *addr, id obj)
 		cls = classForObject(obj);
 		// TODO: We probably also want to do the same for constant strings and
 		// classes.
-		if (cls == &_NSConcreteGlobalBlock)
+		if (cls == objc_global_block_class())
 		{
 			isGlobalObject = YES;
 		}
@@ -640,7 +638,7 @@ id objc_storeWeak(id *addr, id obj)
 		*addr = obj;
 		return obj;
 	}
-	if (&_NSConcreteMallocBlock == cls)
+	if (objc_malloc_block_class() == cls)
 	{
 		obj = block_load_weak(obj);
 	}
@@ -733,7 +731,7 @@ id objc_loadWeakRetained(id* addr)
 		return obj;
 	}
 	Class cls = classForObject(obj);
-	if (&_NSConcreteMallocBlock == cls)
+	if (objc_malloc_block_class() == cls)
 	{
 		obj = block_load_weak(obj);
 	}

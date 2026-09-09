@@ -17,6 +17,7 @@ struct objc_method_description_list
 
 
 #ifdef __OBJC__
+__attribute__((objc_root_class))
 @interface Object { id isa; } @end
 /**
  * Definition of the Protocol type.  Protocols are objects, but are rarely used
