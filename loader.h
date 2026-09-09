@@ -13,6 +13,11 @@
  */
 BOOL objc_check_abi_version(struct objc_module_abi_8 *module);
 /**
+ * Initializes the runtime core without loading a compiler-emitted module.
+ * This is used by hosts that provide their own Objective-C metadata loader.
+ */
+void mosaic_objc_runtime_initialize(void);
+/**
  * Initializes a protocol list, uniquing the protocols in the list.
  */
 void objc_init_protocols(struct objc_protocol_list *protocols);

@@ -45,11 +45,28 @@ extern void _NSConcreteMallocBlock;
 extern void _NSConcreteStackBlock;
 extern struct objc_class _NSConcreteGlobalBlock;
 
+#if !defined(MOSAIC_LIBOBJC2_C_DISPATCH)
 @interface NSAutoreleasePool
 + (Class)class;
 + (id)new;
 - (void)release;
 @end
+#else
+static inline id mosaic_objc_send_id0(id obj, const char *name)
+{
+    if (nil == obj) return nil;
+    SEL sel = sel_registerName(name);
+    IMP imp = objc_msg_lookup(obj, sel);
+    return ((id (*)(id, SEL))imp)(obj, sel);
+}
+static inline void mosaic_objc_send_void0(id obj, const char *name)
+{
+    if (nil == obj) return;
+    SEL sel = sel_registerName(name);
+    IMP imp = objc_msg_lookup(obj, sel);
+    ((void (*)(id, SEL))imp)(obj, sel);
+}
+#endif
 
 #define POOL_SIZE (4096 / sizeof(void*) - (2 * sizeof(void*)))
 /**
@@ -211,7 +228,11 @@ static inline id retain(id obj)
 		}
 		return obj;
 	}
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+	return mosaic_objc_send_id0(obj, "retain");
+#else
 	return [obj retain];
+#endif
 }
 
 static inline void release(id obj)
@@ -237,11 +258,19 @@ static inline void release(id obj)
 		if (__sync_sub_and_fetch(refCount, 1) == -1)
 		{
 			objc_delete_weak_refs(obj);
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+			mosaic_objc_send_void0(obj, "dealloc");
+#else
 			[obj dealloc];
+#endif
 		}
 		return;
 	}
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+	mosaic_objc_send_void0(obj, "release");
+#else
 	[obj release];
+#endif
 }
 
 static inline void initAutorelease(void)
@@ -259,7 +288,11 @@ static inline void initAutorelease(void)
 			                                                      SELECTOR(_ARCCompatibleAutoreleasePool)));
 			if (!useARCAutoreleasePool)
 			{
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+				(void)mosaic_objc_send_id0((id)AutoreleasePool, "class");
+#else
 				[AutoreleasePool class];
+#endif
 				NewAutoreleasePool = class_getMethodImplementation(object_getClass(AutoreleasePool),
 				                                                   SELECTOR(new));
 				DeleteAutoreleasePool = class_getMethodImplementation(AutoreleasePool,
@@ -302,7 +335,11 @@ static inline id autorelease(id obj)
 		}
 		return obj;
 	}
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+	return mosaic_objc_send_id0(obj, "autorelease");
+#else
 	return [obj autorelease];
+#endif
 }
 
 unsigned long objc_arc_autorelease_count_np(void)

@@ -43,52 +43,43 @@ __attribute__((weak)) void (*dispatch_end_thread_4GC)(void);
 __attribute__((weak)) void *(*_dispatch_begin_NSAutoReleasePool)(void);
 __attribute__((weak)) void (*_dispatch_end_NSAutoReleasePool)(void *);
 
-void __objc_load_module(struct objc_module_abi_8 *module) {
-	static BOOL first_run = YES;
+void mosaic_objc_runtime_initialize(void)
+{
+	static BOOL initialized = NO;
+	if (initialized) { return; }
+#if ENABLE_GC
+	init_gc();
+#endif
+	INIT_LOCK(runtime_mutex);
+	init_selector_tables();
+	init_protocol_table();
+	init_class_tables();
+	init_dispatch_tables();
+	init_alias_table();
+	init_arc();
+	init_trampolines();
+	initialized = YES;
+	if (dispatch_begin_thread_4GC != 0) {
+		dispatch_begin_thread_4GC = objc_registerThreadWithCollector;
+	}
+	if (dispatch_end_thread_4GC != 0) {
+		dispatch_end_thread_4GC = objc_unregisterThreadWithCollector;
+	}
+	if (_dispatch_begin_NSAutoReleasePool != 0) {
+		_dispatch_begin_NSAutoReleasePool = objc_autoreleasePoolPush;
+	}
+	if (_dispatch_end_NSAutoReleasePool != 0) {
+		_dispatch_end_NSAutoReleasePool = objc_autoreleasePoolPop;
+	}
+}
 
+void __objc_load_module(struct objc_module_abi_8 *module) {
 	// Check that this module uses an ABI version that we recognise.  
 	// In future, we should pass the ABI version to the class / category load
 	// functions so that we can change various structures more easily.
 	assert(objc_check_abi_version(module));
 
-	if (first_run)
-	{
-#if ENABLE_GC
-		init_gc();
-#endif
-		// Create the main runtime lock.  This is not safe in theory, but in
-		// practice the first time that this function is called will be in the
-		// loader, from the main thread.  Future loaders may run concurrently,
-		// but that is likely to break the semantics of a lot of languages, so
-		// we don't have to worry about it for a long time.
-		//
-		// The only case when this can potentially go badly wrong is when a
-		// pure-C main() function spawns two threads which then, concurrently,
-		// call dlopen() or equivalent, and the platform's implementation of
-		// this does not perform any synchronization.
-		INIT_LOCK(runtime_mutex);
-		// Create the various tables that the runtime needs.
-		init_selector_tables();
-		init_protocol_table();
-		init_class_tables();
-		init_dispatch_tables();
-		init_alias_table();
-		init_arc();
-		init_trampolines();
-		first_run = NO;
-		if (dispatch_begin_thread_4GC != 0) {
-			dispatch_begin_thread_4GC = objc_registerThreadWithCollector;
-		}
-		if (dispatch_end_thread_4GC != 0) {
-			dispatch_end_thread_4GC = objc_unregisterThreadWithCollector;
-		}
-		if (_dispatch_begin_NSAutoReleasePool != 0) {
-			_dispatch_begin_NSAutoReleasePool = objc_autoreleasePoolPush;
-		}
-		if (_dispatch_end_NSAutoReleasePool != 0) {
-			_dispatch_end_NSAutoReleasePool = objc_autoreleasePoolPop;
-		}
-	}
+	mosaic_objc_runtime_initialize();
 
 	// The runtime mutex is held for the entire duration of a load.  It does
 	// not need to be acquired or released in any of the called load functions.

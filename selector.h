@@ -1,5 +1,6 @@
 #ifndef OBJC_SELECTOR_H_INCLUDED
 #define OBJC_SELECTOR_H_INCLUDED
+#include "visibility.h"
 /**
  * Structure used to store the types for a selector.  This allows for a quick
  * test to see whether a selector is polymorphic and allows enumeration of all
@@ -99,12 +100,16 @@ BOOL isSelRegistered(SEL sel);
  */
 SEL objc_register_selector(SEL aSel);
 
+PRIVATE void objc_register_selector_array8(struct objc_selector8 *selectors, unsigned long count);
+
 /**
  * SELECTOR() macro to work around the fact that GCC hard-codes the type of
  * selectors.  This is functionally equivalent to @selector(), but it ensures
  * that the selector has the type that the runtime uses for selectors.
  */
-#ifdef __clang__
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+#define SELECTOR(x) sel_registerName(#x)
+#elif defined(__clang__)
 #define SELECTOR(x) @selector(x)
 #else
 #define SELECTOR(x) (SEL)@selector(x)

@@ -15,6 +15,7 @@
 #include "visibility.h"
 #include "asmconstants.h"
 
+#ifndef LIBOBJC2_NO_ASM_DISPATCH
 _Static_assert(__builtin_offsetof(struct objc_class, dtable) == DTABLE_OFFSET,
 		"Incorrect dtable offset for assembly");
 _Static_assert(__builtin_offsetof(SparseArray, shift) == SHIFT_OFFSET,
@@ -23,6 +24,7 @@ _Static_assert(__builtin_offsetof(SparseArray, data) == DATA_OFFSET,
 		"Incorrect data offset for assembly");
 _Static_assert(__builtin_offsetof(struct objc_slot, method) == SLOT_OFFSET,
 		"Incorrect slot offset for assembly");
+#endif
 
 PRIVATE dtable_t uninstalled_dtable;
 #if defined(WITH_TRACING) && defined (__x86_64)

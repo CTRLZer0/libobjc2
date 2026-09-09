@@ -114,6 +114,8 @@ static inline int classHasDtable(struct objc_class *cls)
  * Updates the dtable for a class and its subclasses.  Must be called after
  * modifying a class's method list.
  */
+PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable);
+PRIVATE void objc_send_initialize(id object);
 void objc_update_dtable_for_class(Class);
 /**
  * Adds a single method list to a class.  This is used when loading categories,

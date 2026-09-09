@@ -3,14 +3,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef WIN32
 #include <unistd.h>
+#endif
 #include "class.h"
 #include "properties.h"
 #include "spinlock.h"
 #include "visibility.h"
+#if !defined(MOSAIC_LIBOBJC2_C_DISPATCH)
 #include "nsobject.h"
+#endif
 #include "gc_ops.h"
 #include "lock.h"
+
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+static inline id mosaic_objc_copy(id obj)
+{
+    if (nil == obj) return nil;
+    SEL sel = sel_registerName("copy");
+    IMP imp = objc_msg_lookup(obj, sel);
+    return ((id (*)(id, SEL))imp)(obj, sel);
+}
+#define MOSAIC_OBJC_COPY(value) mosaic_objc_copy(value)
+#else
+#define MOSAIC_OBJC_COPY(value) [(value) copy]
+#endif
 
 PRIVATE int spinlocks[spinlock_count];
 
@@ -59,14 +76,14 @@ void objc_setProperty(id obj, SEL _cmd, ptrdiff_t offset, id arg, BOOL isAtomic,
 	{
 		if (isCopy)
 		{
-			arg = [arg copy];
+			arg = MOSAIC_OBJC_COPY(arg);
 		}
 		*(id*)addr = arg;
 		return;
 	}
 	if (isCopy)
 	{
-		arg = [arg copy];
+		arg = MOSAIC_OBJC_COPY(arg);
 	}
 	else
 	{
@@ -107,7 +124,7 @@ void objc_setProperty_atomic_copy(id obj, SEL _cmd, id arg, ptrdiff_t offset)
 	char *addr = (char*)obj;
 	addr += offset;
 
-	arg = [arg copy];
+	arg = MOSAIC_OBJC_COPY(arg);
 	volatile int *lock = lock_for_pointer(addr);
 	lock_spinlock(lock);
 	id old = *(id*)addr;
@@ -131,7 +148,7 @@ void objc_setProperty_nonatomic_copy(id obj, SEL _cmd, id arg, ptrdiff_t offset)
 	char *addr = (char*)obj;
 	addr += offset;
 	id old = *(id*)addr;
-	*(id*)addr = [arg copy];
+	*(id*)addr = MOSAIC_OBJC_COPY(arg);
 	objc_release(old);
 }
 

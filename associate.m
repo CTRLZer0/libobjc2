@@ -4,13 +4,28 @@
 #include <assert.h>
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
+#if !defined(MOSAIC_LIBOBJC2_C_DISPATCH)
 #include "nsobject.h"
+#endif
 #include "spinlock.h"
 #include "class.h"
 #include "dtable.h"
 #include "selector.h"
 #include "lock.h"
 #include "gc_ops.h"
+
+#if defined(MOSAIC_LIBOBJC2_C_DISPATCH)
+static inline id mosaic_objc_copy_associated(id obj)
+{
+    if (nil == obj) return nil;
+    SEL sel = sel_registerName("copy");
+    IMP imp = objc_msg_lookup(obj, sel);
+    return ((id (*)(id, SEL))imp)(obj, sel);
+}
+#define MOSAIC_ASSOC_COPY(value) mosaic_objc_copy_associated(value)
+#else
+#define MOSAIC_ASSOC_COPY(value) [(value) copy]
+#endif
 
 /**
  * A single associative reference.  Contains the key, value, and association
@@ -129,7 +144,7 @@ static void setReference(struct reference_list *list,
 		default: return;
 		case OBJC_ASSOCIATION_COPY_NONATOMIC:
 		case OBJC_ASSOCIATION_COPY:
-			obj = [(id)obj copy];
+			obj = MOSAIC_ASSOC_COPY((id)obj);
 			break;
 		case OBJC_ASSOCIATION_RETAIN_NONATOMIC:
 		case OBJC_ASSOCIATION_RETAIN:
