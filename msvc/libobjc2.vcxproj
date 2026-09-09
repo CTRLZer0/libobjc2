@@ -1,4 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT AND AGPL-3.0-only; original libobjc2 portions MIT, CTRLZer0 modifications AGPL-3.0-only. -->
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|ARM">
@@ -80,31 +81,31 @@
     <UseDotNetNativeToolchain>true</UseDotNetNativeToolchain>
   </PropertyGroup>
   <ItemGroup>
-    <ClangCompile Include="..\abi_version.c" />
-    <ClangCompile Include="..\alias_table.c" />
-    <ClangCompile Include="..\caps.c" />
-    <ClangCompile Include="..\category_loader.c" />
-    <ClangCompile Include="..\class_table.c" />
-    <ClangCompile Include="..\dtable.c" />
-    <ClangCompile Include="..\encoding2.c" />
-    <ClangCompile Include="..\gc_none.c" />
-    <ClangCompile Include="..\hooks.c" />
-    <ClangCompile Include="..\ivar.c" />
-    <ClangCompile Include="..\legacy_malloc.c" />
-    <ClangCompile Include="..\loader.c" />
-    <ClangCompile Include="..\protocol.c" />
-    <ClangCompile Include="..\runtime.c" />
-    <ClangCompile Include="..\sarray2.c" />
-    <ClangCompile Include="..\selector_table.c" />
-    <ClangCompile Include="..\sendmsg2.c" />
-    <ClangCompile Include="..\statics_loader.c" />
-    <ClangCompile Include="..\arc.m" />
-    <ClangCompile Include="..\associate.m" />
-    <ClangCompile Include="..\blocks_runtime.m" />
-    <ClangCompile Include="..\mutation.m" />
-    <ClangCompile Include="..\NSBlocks.m" />
-    <ClangCompile Include="..\properties.m" />
-    <ClangCompile Include="..\Protocol2.m" />
+    <ClangCompile Include="..\src\runtime\abi_version.c" />
+    <ClangCompile Include="..\src\runtime\alias_table.c" />
+    <ClangCompile Include="..\src\runtime\caps.c" />
+    <ClangCompile Include="..\src\runtime\category_loader.c" />
+    <ClangCompile Include="..\src\runtime\class_table.c" />
+    <ClangCompile Include="..\src\dispatch\dtable.c" />
+    <ClangCompile Include="..\src\encoding\encoding2.c" />
+    <ClangCompile Include="..\src\memory\gc_none.c" />
+    <ClangCompile Include="..\src\runtime\hooks.c" />
+    <ClangCompile Include="..\src\runtime\ivar.c" />
+    <ClangCompile Include="..\src\memory\legacy_malloc.c" />
+    <ClangCompile Include="..\src\runtime\loader.c" />
+    <ClangCompile Include="..\src\runtime\protocol.c" />
+    <ClangCompile Include="..\src\runtime\runtime.c" />
+    <ClangCompile Include="..\src\dispatch\sarray2.c" />
+    <ClangCompile Include="..\src\dispatch\selector_table.c" />
+    <ClangCompile Include="..\src\dispatch\sendmsg2.c" />
+    <ClangCompile Include="..\src\runtime\statics_loader.c" />
+    <ClangCompile Include="..\src\memory\arc.m" />
+    <ClangCompile Include="..\src\memory\associate.m" />
+    <ClangCompile Include="..\src\blocks\blocks_runtime.m" />
+    <ClangCompile Include="..\src\runtime\mutation.m" />
+    <ClangCompile Include="..\src\blocks\NSBlocks.m" />
+    <ClangCompile Include="..\src\runtime\properties.m" />
+    <ClangCompile Include="..\src\runtime\Protocol2.m" />
     <ClCompile Include="objc_msgSend.x86-32.masm.cpp">
       <ExcludedFromBuild Condition="'$(Platform)'!='Win32'">true</ExcludedFromBuild>
     </ClCompile>
@@ -113,7 +114,7 @@
       <ExcludedFromBuild Condition="'$(Platform)'!='ARM'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="eh_winobjc.cc" />
-    <ClangCompile Include="block_to_imp_winobjc.c" />
+    <ClangCompile Include="..\src\platform\windows\block_to_imp_winobjc.c" />
     <Natvis Include="libobjc2.natvis" />
   </ItemGroup>
   <Target Name="ARMAssembly" Condition="'$(Platform)'=='ARM'" AfterTargets="ClCompile">

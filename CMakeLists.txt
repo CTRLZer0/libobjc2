@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: MIT AND AGPL-3.0-only
+# Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+# See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+
 cmake_minimum_required(VERSION 2.8)
 
 
@@ -16,39 +20,13 @@ add_definitions( -DGNUSTEP -D__OBJC_RUNTIME_INTERNAL__=1)
 # Probably not needed anymore?
 add_definitions( -D_XOPEN_SOURCE=700 -D__BSD_VISIBLE=1 -D_BSD_SOURCE=1)
 
-set(libobjc_ASM_SRCS 
-	block_trampolines.S
-	objc_msgSend.S)
-set(libobjc_OBJC_SRCS 
-	NSBlocks.m
-	Protocol2.m
-	arc.m
-	associate.m
-	blocks_runtime.m
-	properties.m)
-set(libobjc_C_SRCS 
-	abi_version.c
-	alias_table.c
-	block_to_imp.c
-	caps.c
-	category_loader.c
-	class_table.c
-	dtable.c
-	eh_personality.c
-	encoding2.c
-	hash_table.c
-	hooks.c
-	ivar.c
-	legacy_malloc.c
-	loader.c
-	mutation.m
-	protocol.c
-	runtime.c
-	sarray2.c
-	selector_table.c
-	sendmsg2.c
-	statics_loader.c
-	toydispatch.c)
+set(LIBOBJC2_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/RuntimeSources.cmake")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(libobjc_ASM_SRCS ${LIBOBJC2_DISPATCH_ASM_SOURCES})
+set(libobjc_OBJC_SRCS ${LIBOBJC2_CORE_OBJC_SOURCES})
+set(libobjc_C_SRCS ${LIBOBJC2_CORE_C_SOURCES})
 set(libobjc_HDRS
 	objc/Availability.h
 	objc/Object.h
@@ -70,7 +48,7 @@ set(libobjc_HDRS
 	objc/slot.h
 )
 
-set(libobjcxx_CXX_SRCS objcxx_eh.cc)
+set(libobjcxx_CXX_SRCS ${LIBOBJC2_EXCEPTION_CXX_SOURCES})
 
 # For release builds, we disable spamming the terminal with warnings about
 # selector type mismatches
@@ -114,15 +92,15 @@ if (BOEHM_GC)
 	set(CMAKE_OBJC_FLAGS "${CMAKE_OBJC_FLAGS} -fobjc-gc")
 	set(objc_LINK_FLAGS "${objc_LINK_FLAGS} ${GC_CFLAGS}")
 	add_definitions(-DENABLE_GC)
-	list(APPEND libobjc_OBJC_SRCS gc_boehm.c)
+	list(APPEND libobjc_OBJC_SRCS ${LIBOBJC2_GC_BOEHM_SOURCE})
 else ()
-	list(APPEND libobjc_OBJC_SRCS gc_none.c)
+	list(APPEND libobjc_OBJC_SRCS ${LIBOBJC2_GC_NONE_SOURCE})
 endif ()
 
 set(LEGACY_COMPAT FALSE CACHE BOOL
 	"Enable legacy compatibility features")
 if (LEGACY_COMPAT)
-	list(APPEND libobjc_C_SRCS legacy_malloc.c)
+	list(APPEND libobjc_C_SRCS "${LIBOBJC2_SOURCE_ROOT}/src/memory/legacy_malloc.c")
 else ()
 	add_definitions(-DNO_LEGACY)
 endif ()

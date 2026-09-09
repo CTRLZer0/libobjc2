@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-only */
-#include "../objc/runtime.h"
-#include "../objc/hooks.h"
+#include "objc/runtime.h"
+#include "objc/hooks.h"
 
 Class (*_objc_lookup_class)(const char *name) = 0;
 void (*_objc_load_callback)(Class cls, struct objc_category *category) = 0;

@@ -13,6 +13,8 @@ if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
 endif()
 
 set(MOSAIC_LIBOBJC2_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
+set(LIBOBJC2_SOURCE_ROOT "${MOSAIC_LIBOBJC2_ROOT}")
+include("${MOSAIC_LIBOBJC2_ROOT}/CMake/RuntimeSources.cmake")
 set(MOSAIC_LIBOBJC2_DEFINES
     WIN32 _WINDOWS NO_PTHREADS=1 GNUSTEP
     __OBJC_RUNTIME_INTERNAL__=1 NO_LEGACY
@@ -21,37 +23,23 @@ set(MOSAIC_LIBOBJC2_DEFINES
     LIBOBJC2_NO_ASM_DISPATCH)
 
 set(MOSAIC_LIBOBJC2_C_SOURCES
-    "${MOSAIC_LIBOBJC2_ROOT}/abi_version.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/alias_table.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/msvc/block_to_imp_winobjc.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/caps.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/category_loader.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/class_table.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/dtable.c"
-)
-
+    ${LIBOBJC2_RUNTIME_SOURCES}
+    ${LIBOBJC2_ENCODING_SOURCES}
+    ${LIBOBJC2_GC_NONE_SOURCE}
+    ${LIBOBJC2_DISPATCH_SOURCES}
+    "${MOSAIC_LIBOBJC2_ROOT}/src/platform/windows/block_to_imp_winobjc.c"
+    "${MOSAIC_LIBOBJC2_ROOT}/src/platform/windows/hooks_mosaic.c")
+list(REMOVE_ITEM MOSAIC_LIBOBJC2_C_SOURCES
+    "${MOSAIC_LIBOBJC2_ROOT}/src/runtime/hooks.c"
+    "${MOSAIC_LIBOBJC2_ROOT}/src/dispatch/hash_table.c"
+    "${MOSAIC_LIBOBJC2_ROOT}/src/dispatch/toydispatch.c")
 list(APPEND MOSAIC_LIBOBJC2_C_SOURCES
-    "${MOSAIC_LIBOBJC2_ROOT}/encoding2.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/gc_none.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/msvc/hooks_mosaic.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/ivar.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/legacy_malloc.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/loader.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/protocol.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/runtime.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/sarray2.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/selector_table.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/sendmsg2.c"
-    "${MOSAIC_LIBOBJC2_ROOT}/statics_loader.c")
+    "${MOSAIC_LIBOBJC2_ROOT}/src/memory/legacy_malloc.c")
 
 set(MOSAIC_LIBOBJC2_OBJC_SOURCES
-    "${MOSAIC_LIBOBJC2_ROOT}/arc.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/associate.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/blocks_runtime.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/mutation.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/NSBlocks.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/properties.m"
-    "${MOSAIC_LIBOBJC2_ROOT}/Protocol2.m")
+    ${LIBOBJC2_RUNTIME_OBJC_SOURCES}
+    ${LIBOBJC2_MEMORY_OBJC_SOURCES}
+    ${LIBOBJC2_BLOCK_OBJC_SOURCES})
 
 set(MOSAIC_LIBOBJC2_OBJC_OBJECTS)
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/objc")

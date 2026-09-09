@@ -1,5 +1,11 @@
+/*
+ * SPDX-License-Identifier: MIT AND AGPL-3.0-only
+ * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+ * See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+ */
+
 #include "objc/runtime.h"
-#include "../visibility.h"
+#include "visibility.h"
 
 /* These are stub implementations of the block->imp->block API functions.
  * Until we can emit the block trampolines at build time (like iOS appears to),
