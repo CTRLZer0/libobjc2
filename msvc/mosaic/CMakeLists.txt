@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
-project(mosaic_libobjc2 LANGUAGES C)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(mosaic_libobjc2 LANGUAGES C)
+endif()
 
 if(NOT WIN32)
     message(FATAL_ERROR "Mosaic libobjc2 host runtime currently targets Windows")
