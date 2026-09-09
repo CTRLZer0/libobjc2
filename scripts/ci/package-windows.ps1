@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
+# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# and provenance details.
 param(
     [Parameter(Mandatory = $true)][string]$BuildDir,
     [string]$Version = "dev",

@@ -1,7 +1,9 @@
 /*
  * SPDX-License-Identifier: MIT AND AGPL-3.0-only
  * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
- * See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+ * Copyright (C) 2026 CTRLZer0 contributors for CTRLZer0 modifications.
+ * Original upstream copyright and attribution remain under COPYING and the
+ * preserved source / repository history. See LICENSE-CTRLZERO and NOTICE.md.
  */
 
 #include <stdlib.h>
