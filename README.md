@@ -4,39 +4,37 @@ CTRLZer0 libobjc2 is a modern Objective-C runtime focused on portable host
 execution, with first-class Windows support for the Mosaic compatibility
 runtime.
 
-The project is derived from the historical GNUstep / Microsoft libobjc2 work,
-but is now maintained as an independent CTRLZer0 repository. The original
-runtime remains MIT licensed. New CTRLZer0-owned files are licensed separately
-where explicitly marked.
+The project descends from the historical GNUstep / Microsoft libobjc2 codebase
+but is now maintained as an independent CTRLZer0 repository. Upstream history,
+copyright notices and MIT licensing are preserved for inherited code.
 
 ## Current status
 
 - Windows x86-64 host runtime builds with `clang-cl`.
-- The Mosaic path intentionally excludes the native Objective-C messenger;
-  guest ARM64 dispatch is handled by Mosaic / Dynarmic.
-- Class allocation, selector registration, method installation, instance
-  creation and native IMP lookup are covered by a host contract test.
-- The current Windows contract returns `objc-runtime-value=42`.
+- Mosaic uses libobjc2 as a host-side Objective-C runtime model while guest
+  ARM64 message dispatch remains owned by Mosaic / Dynarmic.
+- Runtime initialization is available through
+  `mosaic_objc_runtime_initialize()` without a compiler-emitted GNUstep module.
+- Windows runtime contracts currently cover selectors, classes, ivars, weak
+  references, associated objects and native method lookup.
 - LLVM 23.1.1 is the target compiler baseline.
 
 ## Repository layout
 
 - `objc/` — public Objective-C runtime headers.
-- `tests/` — centralized runtime and compatibility test suite.
-- `tests/windows/` — Windows host contracts used by Mosaic.
-- `benchmarks/` — performance benchmarks and regression baselines.
-- `msvc/mosaic/` — embeddable Windows build entry point for Mosaic.
-- `docs/UPSTREAM_RUNTIME_NOTES.md` — preserved historical runtime notes.
+- `src/` — implementation sources grouped by subsystem.
+- `tests/` — centralized runtime and compatibility tests.
+- `benchmarks/` — performance and regression benchmarks.
+- `docs/` — maintained documentation and archived upstream material.
 
-The implementation sources are being migrated from the historical flat root
-into cohesive runtime modules. Refactors are required to remain behavior
-preserving and test-green before performance work is merged.
+Implementation modules are documented in `docs/ARCHITECTURE.md`. Historical
+release announcements and legacy API / installation notes are preserved under
+`docs/archive/upstream/` and are not current project guidance.
 
 ## Build: Mosaic Windows runtime
 
-The Mosaic build produces a static `mosaic_objc_runtime` target and the
-`Mosaic::ObjCRuntime` alias. It uses `clang-cl` for the Objective-C sources and
-is designed to be embedded into a Visual Studio / MSVC parent project.
+The Mosaic entry point produces `mosaic_objc_runtime` and the
+`Mosaic::ObjCRuntime` alias.
 
 ```powershell
 cmake -S msvc/mosaic -B build/mosaic -DBUILD_TESTING=ON
@@ -44,30 +42,34 @@ cmake --build build/mosaic --config Release
 ctest --test-dir build/mosaic -C Release --output-on-failure
 ```
 
+`CMake/RuntimeSources.cmake` is the canonical source inventory shared by build
+entry points. New sources should be registered there rather than copied into
+separate build-specific file lists.
+
 ## Testing policy
 
-Runtime changes must add or update tests before performance tuning or ABI
-changes are accepted. The suite intentionally follows the project's existing
-style: small C / Objective-C executables, direct runtime API calls, and
-`assert()`-based validation rather than an external unit-test framework.
+Runtime changes should add or update tests before ABI or performance work is
+merged. Tests intentionally follow the existing project style: small C /
+Objective-C executables, direct runtime API calls and `assert()`-based checks
+instead of an external unit-test framework.
 
-Coverage is being organized around:
+Hot-path tuning must include a benchmark or measurable regression test.
 
-- class and metaclass lifecycle;
-- selectors and method dispatch tables;
-- ARC, weak references and autorelease behavior;
-- associated objects and properties;
-- protocols, ivars and metadata loading;
-- blocks and IMP bridging;
-- forwarding and exceptions;
-- Windows / Mosaic host integration.
+Initial benchmark priorities are selector lookup, class lookup, dispatch-table
+lookup, ARC / weak operations and associated-object access.
 
-Performance work must include a benchmark or measurable regression test for the
-hot path being changed. Selector lookup, class lookup, dispatch-table lookup,
-ARC / weak operations and associated-object access are initial priorities.
+## Changelog
+
+Current CTRLZer0 development history is maintained in `CHANGELOG.md`. The
+historical `ANNOUNCE*` files are archived unchanged for provenance and are not
+used as the project's changelog.
 
 ## Licensing and provenance
 
-See `COPYING`, `LICENSE-CTRLZERO`, and `NOTICE.md`. Historical runtime code and
-modifications of that code retain the MIT terms. New CTRLZer0-owned files may
-be AGPL-3.0-only when they carry that SPDX identifier.
+See `COPYING`, `LICENSE-CTRLZERO` and `NOTICE.md`.
+
+Inherited libobjc2 code retains its original MIT terms and copyright notices.
+New CTRLZer0-owned files are AGPL-3.0-only when explicitly marked. In inherited
+files substantially modified by CTRLZer0, SPDX headers may identify the file as
+`MIT AND AGPL-3.0-only`: original portions remain MIT while CTRLZer0 additions
+are licensed under AGPL-3.0-only.
