@@ -189,7 +189,7 @@
       <AdditionalOptions>-D_DEBUG -DDEBUG=1 $(InvariantClangOptions) %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_DEBUG;DEBUG=1;$(InvariantPreprocessorDefinitions);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SystemHeaderDeps>true</SystemHeaderDeps>
-      <IncludePaths>$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
+      <IncludePaths>..\src\internal\runtime;..\src\internal\dispatch;..\src\internal\memory;..\src\internal\blocks;..\src\internal\exceptions;..\src\internal\support;$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
     </ClangCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -213,7 +213,7 @@
       <AdditionalOptions>-DNDEBUG $(InvariantClangOptions) %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>NDEBUG;$(InvariantPreprocessorDefinitions);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SystemHeaderDeps>true</SystemHeaderDeps>
-      <IncludePaths>$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
+      <IncludePaths>..\src\internal\runtime;..\src\internal\dispatch;..\src\internal\memory;..\src\internal\blocks;..\src\internal\exceptions;..\src\internal\support;$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
       <OptimizationLevel>Full</OptimizationLevel>
     </ClangCompile>
   </ItemDefinitionGroup>
@@ -238,7 +238,7 @@
       <AdditionalOptions>-D_DEBUG -DDEBUG=1 $(InvariantClangOptions) %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_DEBUG;DEBUG=1;$(InvariantPreprocessorDefinitions);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SystemHeaderDeps>true</SystemHeaderDeps>
-      <IncludePaths>$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
+      <IncludePaths>..\src\internal\runtime;..\src\internal\dispatch;..\src\internal\memory;..\src\internal\blocks;..\src\internal\exceptions;..\src\internal\support;$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
     </ClangCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|arm'">
@@ -262,7 +262,7 @@
       <AdditionalOptions>-DNDEBUG $(InvariantClangOptions) %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>NDEBUG;$(InvariantPreprocessorDefinitions);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SystemHeaderDeps>true</SystemHeaderDeps>
-      <IncludePaths>$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
+      <IncludePaths>..\src\internal\runtime;..\src\internal\dispatch;..\src\internal\memory;..\src\internal\blocks;..\src\internal\exceptions;..\src\internal\support;$(WINOBJC_SDK_ROOT)\Frameworks\include</IncludePaths>
       <OptimizationLevel>Full</OptimizationLevel>
     </ClangCompile>
   </ItemDefinitionGroup>

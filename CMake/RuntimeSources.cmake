@@ -6,6 +6,14 @@ if(NOT LIBOBJC2_SOURCE_ROOT)
     message(FATAL_ERROR "LIBOBJC2_SOURCE_ROOT must be set before RuntimeSources.cmake")
 endif()
 
+set(LIBOBJC2_INTERNAL_INCLUDE_DIRS
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/runtime"
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/dispatch"
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/memory"
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/blocks"
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/exceptions"
+    "${LIBOBJC2_SOURCE_ROOT}/src/internal/support")
+
 set(LIBOBJC2_RUNTIME_SOURCES
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/abi_version.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/alias_table.c"

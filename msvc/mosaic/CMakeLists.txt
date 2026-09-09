@@ -41,6 +41,12 @@ set(MOSAIC_LIBOBJC2_OBJC_SOURCES
     ${LIBOBJC2_MEMORY_OBJC_SOURCES}
     ${LIBOBJC2_BLOCK_OBJC_SOURCES})
 
+set(MOSAIC_LIBOBJC2_INCLUDE_FLAGS)
+list(APPEND MOSAIC_LIBOBJC2_INCLUDE_FLAGS "/I${MOSAIC_LIBOBJC2_ROOT}")
+foreach(_include IN LISTS LIBOBJC2_INTERNAL_INCLUDE_DIRS)
+    list(APPEND MOSAIC_LIBOBJC2_INCLUDE_FLAGS "/I${_include}")
+endforeach()
+
 set(MOSAIC_LIBOBJC2_OBJC_OBJECTS)
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/objc")
 set(MOSAIC_LIBOBJC2_DEFINE_FLAGS)
@@ -57,7 +63,7 @@ foreach(_source IN LISTS MOSAIC_LIBOBJC2_OBJC_SOURCES)
     add_custom_command(
         OUTPUT "${_object}"
         COMMAND "${CMAKE_C_COMPILER}" /nologo /W3 /c
-            "${_source}" "/Fo${_object}" "/I${MOSAIC_LIBOBJC2_ROOT}"
+            "${_source}" "/Fo${_object}" ${MOSAIC_LIBOBJC2_INCLUDE_FLAGS}
             ${MOSAIC_LIBOBJC2_DEFINE_FLAGS}
         DEPENDS "${_source}" ${MOSAIC_LIBOBJC2_HEADERS}
         VERBATIM)
@@ -71,8 +77,9 @@ add_library(mosaic_objc_runtime STATIC
     ${MOSAIC_LIBOBJC2_OBJC_OBJECTS})
 add_library(Mosaic::ObjCRuntime ALIAS mosaic_objc_runtime)
 
-target_include_directories(mosaic_objc_runtime PUBLIC
-    "${MOSAIC_LIBOBJC2_ROOT}")
+target_include_directories(mosaic_objc_runtime
+    PUBLIC "${MOSAIC_LIBOBJC2_ROOT}"
+    PRIVATE ${LIBOBJC2_INTERNAL_INCLUDE_DIRS})
 target_compile_definitions(mosaic_objc_runtime PRIVATE
     ${MOSAIC_LIBOBJC2_DEFINES})
 target_compile_options(mosaic_objc_runtime PRIVATE /W3)
