@@ -2,7 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include "../selector.h"
+#include "../src/internal/dispatch/selector.h"
 
 #include <sys/types.h>
 

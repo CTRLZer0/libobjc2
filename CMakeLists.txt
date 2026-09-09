@@ -26,7 +26,7 @@ if (MINGW)
 	set(CMAKE_OBJCXX_IMPLICIT_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
 endif ()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_INSTALL_PREFIX})
 
 INCLUDE (CheckCXXSourceCompiles)
@@ -71,33 +71,33 @@ endif ()
 
 
 set(libobjc_ASM_SRCS 
-	objc_msgSend.S)
+	src/dispatch/asm/objc_msgSend.S)
 set(libobjc_OBJCXX_SRCS 
-	properties.mm
-	arc.mm
-	associate.mm
+	src/runtime/properties.mm
+	src/memory/arc.mm
+	src/memory/associate.mm
 	)
 set(libobjc_OBJC_SRCS 
-	NSBlocks.m
-	blocks_runtime_np.m)
+	src/blocks/NSBlocks.m
+	src/blocks/blocks_runtime_np.m)
 set(libobjc_C_SRCS 
-	alias_table.c
-	builtin_classes.c
-	caps.c
-	category_loader.c
-	class_table.c
-	dtable.c
-	encoding2.c
-	gc_none.c
-	hooks.c
-	ivar.c
-	loader.c
-	mutation.m
-	protocol.c
-	runtime.c
-	sarray2.c
-	sendmsg2.c
-	fast_paths.m
+	src/runtime/alias_table.c
+	src/runtime/builtin_classes.c
+	src/runtime/caps.c
+	src/runtime/category_loader.c
+	src/runtime/class_table.c
+	src/dispatch/dtable.c
+	src/encoding/encoding2.c
+	src/memory/gc_none.c
+	src/runtime/hooks.c
+	src/runtime/ivar.c
+	src/runtime/loader.c
+	src/runtime/mutation.m
+	src/runtime/protocol.c
+	src/runtime/runtime.c
+	src/dispatch/sarray2.c
+	src/dispatch/sendmsg2.c
+	src/runtime/fast_paths.m
 	)
 set(libobjc_HDRS
 	objc/Availability.h
@@ -122,14 +122,14 @@ set(libobjc_HDRS
 	${PROJECT_BINARY_DIR}/objc/objc-config.h)
 
 set(libobjc_CXX_SRCS
-	selector_table.cc
+	src/dispatch/selector_table.cc
 	)
 
 # Windows does not use DWARF EH, except when using the GNU ABI (MinGW)
 if (WIN32 AND NOT MINGW)
-	list(APPEND libobjc_CXX_SRCS eh_win32_msvc.cc)
+	list(APPEND libobjc_CXX_SRCS src/exceptions/eh_win32_msvc.cc)
 elseif (NOT MINGW)
-	list(APPEND libobjc_C_SRCS eh_personality.c)
+	list(APPEND libobjc_C_SRCS src/exceptions/eh_personality.c)
 endif ()
 
 find_package(tsl-robin-map)
@@ -175,26 +175,36 @@ add_compile_definitions($<$<BOOL:${DEBUG_ARC_COMPAT}>:DEBUG_ARC_COMPAT>)
 add_compile_definitions($<$<BOOL:${STRICT_APPLE_COMPATIBILITY}>:STRICT_APPLE_COMPATIBILITY>)
 
 configure_file(objc/objc-config.h.in objc/objc-config.h @ONLY)
-include_directories("${PROJECT_BINARY_DIR}/objc/")
+set(LIBOBJC2_PRIVATE_INCLUDE_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/runtime"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/dispatch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/memory"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/blocks"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/exceptions"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/support")
+include_directories(
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${PROJECT_BINARY_DIR}/objc/"
+    ${LIBOBJC2_PRIVATE_INCLUDE_DIRS})
 
 if (WASM)
 	# WebAssembly has no native dispatch assembly or Objective-C fast paths.
 	set(libobjc_ASM_SRCS)
-	list(REMOVE_ITEM libobjc_C_SRCS fast_paths.m)
+	list(REMOVE_ITEM libobjc_C_SRCS src/runtime/fast_paths.m)
 endif ()
 
 if (EMBEDDED_BLOCKS_RUNTIME AND NOT WASM)
-	list(APPEND libobjc_ASM_SRCS block_trampolines.S)
-	list(APPEND libobjc_C_SRCS block_to_imp.c)
+	list(APPEND libobjc_ASM_SRCS src/dispatch/asm/block_trampolines.S)
+	list(APPEND libobjc_C_SRCS src/blocks/block_to_imp.c)
 endif ()
 
 if (OLDABI_COMPAT)
-	list(APPEND libobjc_C_SRCS legacy.c abi_version.c statics_loader.c)
+	list(APPEND libobjc_C_SRCS src/runtime/legacy.c src/runtime/abi_version.c src/runtime/statics_loader.c)
 	add_definitions(-DOLDABI_COMPAT=1)
 endif()
 
 if (LEGACY_COMPAT)
-	list(APPEND libobjc_C_SRCS legacy_malloc.c)
+	list(APPEND libobjc_C_SRCS src/memory/legacy_malloc.c)
 else ()
 	add_definitions(-DNO_LEGACY)
 endif ()
@@ -234,15 +244,15 @@ if (WIN32 AND NOT MINGW)
 	message(STATUS "ASM compiler: ${ASSEMBLER}")
 	# CMake is completely broken when you try to build assembly files on Windows.
 	add_custom_command(OUTPUT block_trampolines.obj
-		COMMAND echo ${ASSEMBLER} ${ASM_TARGET} -c "${CMAKE_CURRENT_SOURCE_DIR}/block_trampolines.S" -o "${CMAKE_CURRENT_BINARY_DIR}/block_trampolines.obj"
-		COMMAND ${ASSEMBLER} ${ASM_TARGET} -c "${CMAKE_CURRENT_SOURCE_DIR}/block_trampolines.S" -o "${CMAKE_CURRENT_BINARY_DIR}/block_trampolines.obj"
-		MAIN_DEPENDENCY block_trampolines.S
+		COMMAND echo ${ASSEMBLER} ${ASM_TARGET} -I"${CMAKE_CURRENT_SOURCE_DIR}/src/internal/dispatch" -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dispatch/asm/block_trampolines.S" -o "${CMAKE_CURRENT_BINARY_DIR}/block_trampolines.obj"
+		COMMAND ${ASSEMBLER} ${ASM_TARGET} -I"${CMAKE_CURRENT_SOURCE_DIR}/src/internal/dispatch" -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dispatch/asm/block_trampolines.S" -o "${CMAKE_CURRENT_BINARY_DIR}/block_trampolines.obj"
+		MAIN_DEPENDENCY src/dispatch/asm/block_trampolines.S
 	)
 	add_custom_command(OUTPUT objc_msgSend.obj
-		COMMAND echo ${ASSEMBLER} ${ASM_TARGET} -c "${CMAKE_CURRENT_SOURCE_DIR}/objc_msgSend.S" -o "${CMAKE_CURRENT_BINARY_DIR}/objc_msgSend.obj"
-		COMMAND ${ASSEMBLER} ${ASM_TARGET} -c "${CMAKE_CURRENT_SOURCE_DIR}/objc_msgSend.S" -o "${CMAKE_CURRENT_BINARY_DIR}/objc_msgSend.obj"
-		MAIN_DEPENDENCY objc_msgSend.S
-		DEPENDS objc_msgSend.aarch64.S objc_msgSend.arm.S objc_msgSend.mips.S objc_msgSend.x86-32.S objc_msgSend.x86-64.S
+		COMMAND echo ${ASSEMBLER} ${ASM_TARGET} -I"${CMAKE_CURRENT_SOURCE_DIR}/src/internal/dispatch" -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dispatch/asm/objc_msgSend.S" -o "${CMAKE_CURRENT_BINARY_DIR}/objc_msgSend.obj"
+		COMMAND ${ASSEMBLER} ${ASM_TARGET} -I"${CMAKE_CURRENT_SOURCE_DIR}/src/internal/dispatch" -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dispatch/asm/objc_msgSend.S" -o "${CMAKE_CURRENT_BINARY_DIR}/objc_msgSend.obj"
+		MAIN_DEPENDENCY src/dispatch/asm/objc_msgSend.S
+		DEPENDS src/dispatch/asm/objc_msgSend.aarch64.S src/dispatch/asm/objc_msgSend.arm.S src/dispatch/asm/objc_msgSend.mips.S src/dispatch/asm/objc_msgSend.riscv64.S src/dispatch/asm/objc_msgSend.x86-32.S src/dispatch/asm/objc_msgSend.x86-64.S
 	)
 	set(libobjc_ASM_OBJS block_trampolines.obj objc_msgSend.obj)
 endif()
@@ -253,9 +263,9 @@ if (WIN32 AND NOT MINGW)
 	message(STATUS "Using MSVC-compatible exception model")
 elseif (MINGW)
 	message(STATUS "Using MinGW-compatible exception model")
-	list(APPEND libobjc_CXX_SRCS objcxx_eh.cc objcxx_eh_mingw.cc)
+	list(APPEND libobjc_CXX_SRCS src/exceptions/objcxx_eh.cc src/exceptions/objcxx_eh_mingw.cc)
 elseif (WASM)
-	list(REMOVE_ITEM libobjc_C_SRCS eh_personality.c)
+	list(REMOVE_ITEM libobjc_C_SRCS src/exceptions/eh_personality.c)
 	list(APPEND libobjc_CXX_SRCS objc_wasm_eh.cc)
 else ()
 	set(EH_PERSONALITY_FLAGS "")
@@ -263,10 +273,10 @@ else ()
 		list(APPEND EH_PERSONALITY_FLAGS "${CMAKE_CXX_COMPILE_OPTIONS_TARGET}${CMAKE_CXX_COMPILER_TARGET}")
 	endif ()
 	add_custom_command(OUTPUT eh_trampoline.S
-		COMMAND ${CMAKE_CXX_COMPILER} ARGS ${EH_PERSONALITY_FLAGS} -fPIC -S "${CMAKE_CURRENT_SOURCE_DIR}/eh_trampoline.cc" -o - -fexceptions -fno-inline | sed "s/__gxx_personality_v0/test_eh_personality/g" > "${CMAKE_CURRENT_BINARY_DIR}/eh_trampoline.S"
-		MAIN_DEPENDENCY eh_trampoline.cc)
+		COMMAND ${CMAKE_CXX_COMPILER} ARGS ${EH_PERSONALITY_FLAGS} -fPIC -S "${CMAKE_CURRENT_SOURCE_DIR}/src/exceptions/eh_trampoline.cc" -o - -fexceptions -fno-inline | sed "s/__gxx_personality_v0/test_eh_personality/g" > "${CMAKE_CURRENT_BINARY_DIR}/eh_trampoline.S"
+		MAIN_DEPENDENCY src/exceptions/eh_trampoline.cc)
 	list(APPEND libobjc_ASM_SRCS eh_trampoline.S)
-	list(APPEND libobjc_CXX_SRCS objcxx_eh.cc)
+	list(APPEND libobjc_CXX_SRCS src/exceptions/objcxx_eh.cc)
 	# Find libm for linking, as some versions of libc++ don't link against it
 	find_library(M_LIBRARY m)
 endif ()
@@ -276,7 +286,7 @@ if (EMBEDDED_BLOCKS_RUNTIME)
 		Block.h
 		Block_private.h
 		)
-	list(APPEND libobjc_OBJC_SRCS blocks_runtime.m)
+	list(APPEND libobjc_OBJC_SRCS src/blocks/blocks_runtime.m)
 	list(APPEND libobjc_HDRS objc/blocks_private.h)
 	list(APPEND libobjc_HDRS objc/blocks_runtime.h)
 	add_definitions(-DEMBEDDED_BLOCKS_RUNTIME)
@@ -463,7 +473,7 @@ install(EXPORT libobjcTargets
 	FILE libobjcTargets.cmake
 	DESTINATION ${LIB_INSTALL_PATH}/cmake/libobjc)
 include(CMakePackageConfigHelpers)
-configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/Config.cmake.in
+configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/CMake/Config.cmake.in
 	"${CMAKE_CURRENT_BINARY_DIR}/libobjcConfig.cmake"
 	INSTALL_DESTINATION "${LIB_INSTALL_PATH}/cmake/libobjc"
 	NO_SET_AND_CHECK_MACRO
@@ -490,7 +500,7 @@ list(REMOVE_DUPLICATES PC_LIBS_PRIVATE)
 string(REPLACE  ";" " -l" PC_LIBS_PRIVATE "${PC_LIBS_PRIVATE}")
 set(PC_LIBS_PRIVATE "Libs.private: -l${PC_LIBS_PRIVATE}")
 
-configure_file("libobjc.pc.in" "libobjc.pc" @ONLY)
+configure_file("CMake/libobjc.pc.in" "libobjc.pc" @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libobjc.pc"
 	DESTINATION "${LIB_INSTALL_PATH}/pkgconfig"
 )
@@ -498,7 +508,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libobjc.pc"
 
 # uninstall target
 configure_file(
-	"${CMAKE_CURRENT_SOURCE_DIR}/cmake_uninstall.cmake.in"
+	"${CMAKE_CURRENT_SOURCE_DIR}/CMake/cmake_uninstall.cmake.in"
 	"${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
 	IMMEDIATE @ONLY)
 
@@ -507,7 +517,7 @@ add_custom_target(uninstall
 
 if (TESTS)
 	enable_testing()
-	add_subdirectory(Test)
+	add_subdirectory(tests)
 endif (TESTS)
 
 CHECK_CXX_SOURCE_COMPILES("

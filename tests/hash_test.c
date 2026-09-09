@@ -30,7 +30,7 @@ static int is_null(uint32_t i)
 #define MAP_TABLE_SINGLE_THREAD 1
 #define MAP_TABLE_NO_LOCK 1
 
-#include "../hash_table.h"
+#include "../src/internal/support/hash_table.h"
 
 static test_table *table;
 

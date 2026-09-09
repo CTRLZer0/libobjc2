@@ -35,7 +35,7 @@ static int test_is_null(const struct test_struct test) {
 #define MAP_TABLE_SINGLE_THREAD 1
 #define MAP_TABLE_NO_LOCK 1
 
-#include "../hash_table.h"
+#include "../src/internal/support/hash_table.h"
 
 int main(int argc, char *argv[])
 {

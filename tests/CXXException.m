@@ -1,5 +1,5 @@
 #include "Test.h"
-#include "../unwind.h"
+#include "../src/internal/exceptions/unwind.h"
 
 #if __cplusplus
 #error This is not an ObjC++ test!
