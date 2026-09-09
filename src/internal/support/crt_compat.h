@@ -13,16 +13,18 @@
 
 static inline char *objc2_strdup(const char *string)
 {
-#if defined(_WIN32)
-	return _strdup(string);
-#else
-	return strdup(string);
-#endif
+	if (NULL == string) { return NULL; }
+	size_t length = strlen(string);
+	if (length == SIZE_MAX) { return NULL; }
+	char *copy = (char *)malloc(length + 1);
+	if (NULL == copy) { return NULL; }
+	memcpy(copy, string, length + 1);
+	return copy;
 }
 
 static inline FILE *objc2_fopen(const char *path, const char *mode)
 {
-#if defined(_WIN32)
+#if defined(_MSC_VER) && !defined(__MINGW32__)
 	FILE *file = NULL;
 	return fopen_s(&file, path, mode) == 0 ? file : NULL;
 #else
@@ -32,7 +34,7 @@ static inline FILE *objc2_fopen(const char *path, const char *mode)
 
 static inline int objc2_getenv_exists(const char *name)
 {
-#if defined(_WIN32)
+#if defined(_MSC_VER) && !defined(__MINGW32__)
 	char *value = NULL;
 	size_t length = 0;
 	int result = _dupenv_s(&value, &length, name);

@@ -119,10 +119,10 @@
                                  # entry point address from the previous
                                  # branch to this trampoline (bctrl).
 
-	#if PAGE_SHIFT < 16
-	addi  %r12, %r12, -PAGE_SIZE # Substract page size from entry point
+	#if OBJC2_PAGE_SHIFT < 16
+	addi  %r12, %r12, -OBJC2_PAGE_SIZE # Substract page size from entry point
 	#else
-	addis %r12, %r12, (-0x1 << (PAGE_SHIFT - 16))
+	addis %r12, %r12, (-0x1 << (OBJC2_PAGE_SHIFT - 16))
 	#endif
 	
 	mr    \arg1, \arg0

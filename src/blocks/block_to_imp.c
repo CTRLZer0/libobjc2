@@ -14,8 +14,8 @@
 #include <sys/mman.h>
 #else
 #include "safewindows.h"
-#include "crt_compat.h"
 #endif
+#include "crt_compat.h"
 #include "objc/runtime.h"
 #include "objc/blocks_runtime.h"
 #include "blocks_runtime.h"

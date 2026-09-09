@@ -22,8 +22,8 @@
 
 // Page size configuration
 #if defined(__powerpc64__)
-#	define PAGE_SHIFT 16
+#	define OBJC2_PAGE_SHIFT 16
 #else
-#	define PAGE_SHIFT 12
+#	define OBJC2_PAGE_SHIFT 12
 #endif
-#define PAGE_SIZE (1<<PAGE_SHIFT)
+#define OBJC2_PAGE_SIZE (1<<OBJC2_PAGE_SHIFT)
