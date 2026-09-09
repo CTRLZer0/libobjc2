@@ -60,7 +60,7 @@ id objc_retainBlock(id b);
  * Stores value in addr.  This first retains value, then releases the old value
  * at addr, and stores the retained value in the address.
  */
-id objc_storeStrong(id *addr, id value);
+void objc_storeStrong(id *addr, id value);
 /**
  * Stores obj in zeroing weak pointer addr.  If obj has begun deallocation,
  * then this stores nil.

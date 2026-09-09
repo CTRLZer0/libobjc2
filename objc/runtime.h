@@ -383,7 +383,7 @@ int class_getVersion(Class theClass);
 void class_setVersion(Class theClass, int version);
 
 OBJC_GNUSTEP_RUNTIME_UNSUPPORTED("Weak instance variables")
-const char *class_getWeakIvarLayout(Class cls);
+const uint8_t *class_getWeakIvarLayout(Class cls);
 
 /**
  * Returns whether the class is a metaclass.  This can be used in conjunction
@@ -417,12 +417,12 @@ BOOL class_respondsToSelector(Class cls, SEL sel);
  * Returns the instance variable layout of this class as an opaque list that
  * can be applied to other classes.
  */
-const char *class_getIvarLayout(Class cls);
+const uint8_t *class_getIvarLayout(Class cls);
 /**
  * Sets the class's instance variable layout.  The layout argument must be a
  * value returned by class_getIvarLayout().
  */
-void class_setIvarLayout(Class cls, const char *layout);
+void class_setIvarLayout(Class cls, const uint8_t *layout);
 
 /**
  * Sets the superclass of the specified class.  This function is deprecated,
@@ -433,7 +433,7 @@ __attribute__((deprecated))
 Class class_setSuperclass(Class cls, Class newSuper);
 
 OBJC_GNUSTEP_RUNTIME_UNSUPPORTED("Weak instance variables")
-void class_setWeakIvarLayout(Class cls, const char *layout);
+void class_setWeakIvarLayout(Class cls, const uint8_t *layout);
 
 /**
  * Returns the name of an instance variable.
@@ -572,13 +572,13 @@ id objc_getMetaClass(const char *name);
  * function should generally only be called early on in a program, to ensure
  * that all required libraries are loaded.
  */
-id objc_getRequiredClass(const char *name);
+Class objc_getRequiredClass(const char *name);
 
 /**
  * Looks up the class with the specified name, but does not invoke any
  * external lazy loading mechanisms.
  */
-id objc_lookUpClass(const char *name);
+Class objc_lookUpClass(const char *name);
 
 /**
  * Returns the protocol with the specified name.

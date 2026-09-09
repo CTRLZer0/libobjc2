@@ -455,10 +455,10 @@ Ivar class_getInstanceVariable(Class cls, const char *name)
 
 // The format of the char* is undocumented.  This function is only ever used in
 // conjunction with class_setIvarLayout().
-const char *class_getIvarLayout(Class cls)
+const uint8_t *class_getIvarLayout(Class cls)
 {
 	CHECK_ARG(cls);
-	return (char*)cls->ivars;
+	return (uint8_t*)cls->ivars;
 }
 
 
@@ -474,7 +474,7 @@ int class_getVersion(Class theClass)
 	return theClass->version;
 }
 
-const char *class_getWeakIvarLayout(Class cls)
+const uint8_t *class_getWeakIvarLayout(Class cls)
 {
 	assert(0 && "Weak ivars not supported");
 	return NULL;
@@ -508,7 +508,7 @@ IMP class_replaceMethod(Class cls, SEL name, IMP imp, const char *types)
 }
 
 
-void class_setIvarLayout(Class cls, const char *layout)
+void class_setIvarLayout(Class cls, const uint8_t *layout)
 {
 	if ((Nil == cls) || (NULL == layout)) { return; }
 	struct objc_ivar_list *list = (struct objc_ivar_list*)layout;
@@ -566,7 +566,7 @@ void class_setVersion(Class theClass, int version)
 	theClass->version = version;
 }
 
-void class_setWeakIvarLayout(Class cls, const char *layout)
+void class_setWeakIvarLayout(Class cls, const uint8_t *layout)
 {
 	assert(0 && "Not implemented");
 }
@@ -622,10 +622,10 @@ IMP method_setImplementation(Method method, IMP imp)
 	return old;
 }
 
-id objc_getRequiredClass(const char *name)
+Class objc_getRequiredClass(const char *name)
 {
 	CHECK_ARG(name);
-	id cls = objc_getClass(name);
+	Class cls = (Class)objc_getClass(name);
 	if (nil == cls)
 	{
 		abort();

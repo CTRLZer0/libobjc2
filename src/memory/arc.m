@@ -517,13 +517,12 @@ void objc_release(id obj)
 	release(obj);
 }
 
-id objc_storeStrong(id *addr, id value)
+void objc_storeStrong(id *addr, id value)
 {
 	value = objc_retain(value);
 	id oldValue = *addr;
 	*addr = value;
 	objc_release(oldValue);
-	return value;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

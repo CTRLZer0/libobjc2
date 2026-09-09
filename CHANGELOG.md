@@ -32,6 +32,7 @@ Original upstream announcements remain preserved under
 - Windows CRT portability and constant-expression cleanup removes legacy LLVM 23 diagnostics without suppressing warnings.
 - Raw Objective-C class access now uses alias-safe internal accessors; block class symbols use consistent typing and legacy protocol root classes are explicit.
 - Protocol2 static-library registration, dynamic protocol list growth and copy APIs are hardened and covered by Windows contract tests.
+- Public ARC, class lookup, and ivar-layout signatures now match current Apple-compatible libobjc2 contracts.
 - LLVM 23 Windows CI treats runtime compiler warnings as errors, preventing diagnostic debt from being reintroduced.
 - Project documentation now describes current CI / release behavior rather than
   relying on inherited release announcements.
