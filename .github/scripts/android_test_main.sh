@@ -28,12 +28,21 @@ main () {
   # We need to run the emulator with root permissions
   # This is needed to run the tests
   adb root
+  # `adb root` restarts adbd.  Wait for the emulator to reconnect before
+  # attempting any file operations or pushes.
+  adb wait-for-device
 
   local TEMP_DIR=$(mktemp -d)
+  local TEST_DIR="$BUILD_DIR/tests"
+  if [ ! -d "$TEST_DIR" ]
+  then
+      echo "Test directory not found: $TEST_DIR"
+      exit 1
+  fi
 
-  # Copy libobjc.so and test binaries to temporary directory
-  cp $BUILD_DIR/libobjc.so* $TEMP_DIR
-  cp $BUILD_DIR/Test/* $TEMP_DIR
+  # Copy libobjc.so and test binaries to temporary directory.
+  cp "$BUILD_DIR"/libobjc.so* "$TEMP_DIR"
+  cp "$TEST_DIR"/* "$TEMP_DIR"
 
   for file in $TEMP_DIR/*; do
     # Check if file is a binary
