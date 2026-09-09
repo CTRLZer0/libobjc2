@@ -1,87 +1,118 @@
-GNUstep Objective-C Runtime
-===========================
+# CTRLZer0 libobjc2
 
-Linux and Windows CI: [![Libobjc2 CI](https://github.com/gnustep/libobjc2/actions/workflows/main.yml/badge.svg)](https://github.com/gnustep/libobjc2/actions/workflows/main.yml)
+[![CI](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml/badge.svg)](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml)
 
-FreeBSD CI: [![Build Status](https://api.cirrus-ci.com/github/gnustep/libobjc2.svg)](https://cirrus-ci.com/github/gnustep/libobjc2)
+CTRLZer0 libobjc2 is a modern Objective-C runtime maintained for portable
+runtime work and for the Mosaic compatibility environment, with first-class
+Windows support and LLVM 23 as the current compiler baseline.
 
-The GNUstep Objective-C runtime was designed as a drop-in replacement for the
-GCC runtime.  It supports three ABIs:
+The runtime now follows the current GNUstep libobjc2 implementation rather than
+the historical Microsoft snapshot. The GNUstep and CTRLZer0 histories are both
+preserved in Git, while CTRLZer0 keeps its subsystem-oriented repository layout,
+Mosaic integration, validation, packaging, and portability work.
 
-- The old GCC ABI, which provides support for Objective-C 1.0 features.  This
-  can be selected via the `-fobjc-runtime=gcc` flag in Clang or by compiling
-  with GCC.
-- The initial GNUstep non-fragile ABI, which was intended to be compatible with
-  the GCC ABI, but provide support for modern Objective-C features.  This can be
-  selected with the `-fobjc-runtime=gnustep-1.9` flag in Clang.
-- The modern (v2) ABI, which provides richer reflection metadata, smaller
-  binaries and reduced memory usage.  This is selected with the
-  `-fobjc-runtime=gnustep-2.0` flag in Clang 7.0 or later.
+## Current status
 
-The runtime can be built without support for older ABIs by setting the
-`OLDABI_COMPAT` flag to `OFF` in CMake configuration.  This will result in a
-smaller binary, which will not link against code using the older ABIs.
+- Based on current GNUstep libobjc2 runtime semantics and ABI work.
+- Sources are organized by subsystem under `src/`.
+- Windows x86-64 builds with LLVM 23.1.1.
+- Shared and static Windows runtimes can be built together.
+- Mosaic consumes the runtime through `Mosaic::ObjCRuntime`.
+- Explicit initialization is available through
+  `mosaic_objc_runtime_initialize()`.
+- The GNUstep runtime suite and dedicated CTRLZer0 Windows contracts are both
+  used as regression gates.
+- Runtime and Windows contracts build with warnings treated as errors in CI.
 
-All ABIs support the following feature above and beyond the GCC runtime:
+## Repository layout
 
-- The modern Objective-C runtime APIs, initially introduced with OS X 10.5.
-- Blocks (closures).
-- Synthesised property accessors.
-- Efficient support for @synchronized()
-- Type-dependent dispatch, eliminating stack corruption from mismatched
-  selectors.
-- Support for the associated reference APIs introduced with Mac OS X 10.6.
-- Support for the automatic reference counting APIs introduced with Mac OS X
-  10.7
+- `objc/` — public Objective-C runtime headers.
+- `src/runtime/` — class, protocol, metadata, properties and lifecycle logic.
+- `src/dispatch/` — selectors, dispatch tables and message lookup.
+- `src/dispatch/asm/` — architecture-specific messenger assembly.
+- `src/memory/` — ARC, weak references, associated objects and allocation.
+- `src/blocks/` — Blocks runtime and block-to-IMP support.
+- `src/encoding/` — Objective-C type encoding support.
+- `src/exceptions/` — Objective-C / Objective-C++ exception support.
+- `src/internal/` — private headers grouped by subsystem.
+- `tests/` — upstream runtime tests plus CTRLZer0 contracts.
+- `benchmarks/` — focused performance and regression benchmarks.
+- `scripts/ci/` — reproducible local and CI build / packaging entry points.
+- `docs/` — maintained documentation and archived historical material.
 
-History
--------
+See `docs/ARCHITECTURE.md` for the build and integration model.
 
-Early work on the GNUstep runtime combined code from the GCC Objective-C
-runtime, the Étoilé Objective-C runtime, Remy Demarest's blocks runtime for OS
-X 10.5, and the Étoilé Objective-C 2 API compatibility framework.  All of these
-aside from the GCC runtime were MIT licensed, although the GPL'd code present
-in the GCC runtime meant that the combined work had to remain under the GPL.
+## Mosaic integration
 
-Since then, all of the GCC code has been removed, leaving the remaining files
-all MIT licensed, and allowing the entire work to be MIT licensed.  
+Mosaic uses the dedicated CMake adapter in `msvc/mosaic/`. It builds the
+complete modern runtime in an isolated LLVM configuration and exposes the same
+stable integration target to consumers:
 
-The exception handling code uses a header file implementing the generic parts
-of the Itanium EH ABI.  This file comes from PathScale's libcxxrt.  PathScale
-kindly allowed it to be MIT licensed for inclusion here.
+```cmake
+target_link_libraries(your_target PRIVATE Mosaic::ObjCRuntime)
+```
 
-Various parts of Windows support were contributed by the WinObjC team at
-Microsoft.
+The runtime can also be initialized explicitly when it is embedded outside the
+normal compiler-emitted module loading path:
 
-Type-Dependent Dispatch
------------------------
+```c
+#include <objc/mosaic.h>
 
-Traditionally, Objective-C method lookup is done entirely on the name of the
-method.  This is problematic when the sender and receiver of the method
-disagree on the types of a method.  
+mosaic_objc_runtime_initialize();
+```
 
-For example, consider a trivial case where you have two methods with the same
-name, one taking an integer, the other taking a floating point value.  Both
-will pass their argument in a register on most platforms, but not the same
-register.  If the sender thinks it is calling one, but is really calling the
-other, then the receiver will look in the wrong register and use a nonsense
-value.  The compiler will often not warn about this.
+This entry point delegates to the normal GNUstep runtime initialization path;
+it does not maintain a second Mosaic-specific Objective-C runtime.
 
-This is a relatively benign example, but if the mismatch is between methods
-taking or returning a structure and those only using scalar arguments and
-return then the call frame layout will be so different that the result will be
-stack corruption, possibly leading to security holes.
+## Windows build and tests
 
-If you compile the GNUstep runtime with type-dependent dispatch enabled, then
-sending a message with a typed selector will only ever invoke a method with the
-same types.  Sending a message with an untyped selector will invoke any method
-with a matching name, although the slot returned from the lookup function will
-contain the types, allowing the caller to check them and construct a valid call
-frame, if required.
+The supported Windows entry point installs / selects the requested LLVM toolchain,
+configures the Mosaic adapter, builds the runtime, and runs the contracts:
 
-If a lookup with a typed selector matches a method with the wrong types, the
-runtime will call a handler.  This handler, by default, prints a helpful
-message and exits.  LanguageKit provides an alternative version which
-dynamically generates a new method performing the required boxing and calling
-the original.
+```powershell
+./scripts/ci/build-windows.ps1 `
+  -ClangCl C:\Tools\LLVM-23.1.1\LLVM\bin\clang-cl.exe `
+  -Configuration Release `
+  -BuildDir out/local-release `
+  -WarningsAsErrors `
+  -BuildBenchmarks
+```
 
+The GNUstep test suite can additionally be enabled from the repository root
+with standard CMake options. Runtime changes should preserve both the upstream
+suite and the CTRLZer0 contracts rather than adapting one at the expense of the
+other.
+
+## Upstream relationship
+
+GNUstep libobjc2 is the semantic upstream for the core runtime. CTRLZer0 keeps
+its own integration and validation layers and may carry portability or runtime
+fixes while they are being evaluated for upstreaming.
+
+Updates should be integrated from the current GNUstep branch and adapted into
+the existing subsystem layout. Do not re-import an old Microsoft snapshot or
+flatten the repository merely to match upstream paths.
+
+The migration preserves both histories: current development descends from the
+GNUstep history and is connected to the earlier CTRLZer0 / Microsoft-derived
+line through an explicit history merge. Historical release announcements and
+legacy documentation are retained under `docs/archive/upstream/` for provenance.
+
+## Automation and releases
+
+Every push and pull request validates Windows Debug and Release builds with
+LLVM 23.1.1. Release validation includes the runtime contracts and performance
+benchmark build. Scheduled nightly builds and `v*` tags publish packaged Windows
+artifacts through GitHub Actions.
+
+See `docs/CI.md` for the current automation policy and `CHANGELOG.md` for
+CTRLZer0-specific development history.
+
+## Licensing and provenance
+
+The repository is distributed under the MIT License in `COPYING`, except for
+third-party material that explicitly states different terms. GNUstep, Microsoft,
+and other upstream copyright and attribution remain preserved.
+
+CTRLZer0-authored files and modifications use the same MIT terms. See
+`NOTICE.md` for provenance details and `CONTRIBUTING.md` for contribution rules.

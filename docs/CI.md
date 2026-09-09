@@ -38,3 +38,15 @@ pass. The workflow uploads the Windows x64 ZIP and its SHA-256 checksum.
 
 Release assets contain the public `objc/` API, `mosaic_objc_runtime.lib`, build
 metadata, README/changelog and all applicable license / provenance files.
+
+## Upstream compatibility CI
+
+`.github/workflows/main.yml` retains GNUstep's broader compatibility matrix and
+now targets the CTRLZer0 `main` branch. It covers Linux, cross-architecture,
+Windows and MinGW configurations that are intentionally broader than the Mosaic
+adapter gate.
+
+The dedicated `ci.yml` remains authoritative for Mosaic Windows x64, LLVM 23.1.1
+and warnings-as-errors validation. Both workflows are useful: one protects
+upstream runtime portability, the other protects the supported CTRLZer0
+integration contract.

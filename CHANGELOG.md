@@ -1,40 +1,50 @@
 # Changelog
 
-All notable changes to the CTRLZer0 libobjc2 runtime are documented here.
-
-The project does not reconstruct historical release notes into this changelog.
-Original upstream announcements remain preserved under
-`docs/archive/upstream/releases/`.
+Notable CTRLZer0-specific changes are documented here. Historical GNUstep
+release announcements remain under `docs/archive/upstream/releases/`.
 
 ## Unreleased
 
 ### Added
 
-- Standalone Windows x86-64 runtime path for Mosaic.
-- Explicit `mosaic_objc_runtime_initialize()` host initialization API.
-- Centralized runtime contract suite under `tests/windows/`.
-- Dedicated `benchmarks/` area for performance regression coverage.
-- Windows runtime hot-path benchmark for class access, class lookup and selector lookup.
-- Compiler-facing `objc_alloc`, `objc_allocWithZone`, and `objc_alloc_init` fast paths adapted from current GNUstep libobjc2, including safe fallback for overridden allocation and initialization.
-- Central source manifest shared by supported build entry points.
-- Reproducible PowerShell entry points for LLVM installation, Windows build,
-  tests and release packaging.
-- Per-push / pull-request CI plus automated nightly and versioned releases.
+- Current GNUstep libobjc2 history as the semantic runtime base.
+- Explicit `mosaic_objc_runtime_initialize()` embedding API.
+- `Mosaic::ObjCRuntime` CMake integration backed by the complete GNUstep runtime.
+- Dedicated Windows contracts under `tests/windows/`.
+- Runtime hot-path benchmarks under `benchmarks/windows/`.
+- Reproducible LLVM 23 Windows build, test, package, nightly and release scripts.
+- Static-runtime consumer visibility mode for Windows.
+- Generated `objc-config.h` propagation in Mosaic builds and release packages.
+- A history bridge preserving the earlier CTRLZer0 / Microsoft-derived lineage.
+
 ### Changed
 
-- Repository licensing is unified under MIT while preserving GNUstep / Microsoft provenance and third-party terms.
-- Repository detached from its historical fork network and maintained directly
-  by CTRLZer0.
-- Runtime implementations reorganized into subsystem directories under `src/`.
-- Private runtime headers isolated under `src/internal/`.
-- Test sources centralized under `tests/`.
-- Historical upstream documentation moved into `docs/archive/upstream/`.
-- LLVM 23.1.1 selected as the target compiler baseline.
-- Runtime typing updated for clean compilation across Clang 20 and LLVM 23.1.1.
-- Windows CRT portability and constant-expression cleanup removes legacy LLVM 23 diagnostics without suppressing warnings.
-- Raw Objective-C class access now uses alias-safe internal accessors; block class symbols use consistent typing and legacy protocol root classes are explicit.
-- Protocol2 static-library registration, dynamic protocol list growth and copy APIs are hardened and covered by Windows contract tests.
-- Public ARC, class lookup, and ivar-layout signatures now match current Apple-compatible libobjc2 contracts.
-- LLVM 23 Windows CI treats runtime compiler warnings as errors, preventing diagnostic debt from being reintroduced.
-- Project documentation now describes current CI / release behavior rather than
-  relying on inherited release announcements.
+- Core runtime development now follows current GNUstep instead of the historical
+  Microsoft snapshot.
+- GNUstep implementation sources are reorganized into the CTRLZer0 subsystem
+  layout under `src/`, with private headers under `src/internal/`.
+- Windows shared and static runtimes can be built simultaneously without output
+  collisions.
+- The static target now includes native message-send and block-trampoline
+  assembly objects just like the shared target.
+- Windows CRT portability helpers remove LLVM 23 deprecation diagnostics without
+  warning suppression.
+- CI treats runtime and CTRLZer0 contract warnings as errors.
+- Root documentation now describes the CTRLZer0 project while preserving the
+  imported GNUstep README under `docs/archive/upstream/`.
+- GNUstep compatibility CI is retained alongside the Mosaic-specific Windows
+  gate so both upstream behavior and integration behavior remain covered.
+
+### Fixed
+
+- `class_addIvar()` now initializes ivar size and ownership flags before applying
+  alignment metadata, preventing uninitialized bits from turning dynamic ivars
+  into accidental strong or weak references.
+- Dynamic protocol adoption allocates the correct `objc_protocol_list` layout.
+- Protocol copy APIs are null-safe and initialize output counts consistently.
+- Protocol lookup accepts semantically equivalent typed and untyped selectors.
+- Dynamic protocol allocation validates names and allocation failures.
+- Associated-object and weak-reference contracts now validate the modern GNUstep
+  ARC semantics instead of depending on the removed legacy implementation.
+- Windows static and shared runtime outputs no longer overwrite the same import
+  library name.
