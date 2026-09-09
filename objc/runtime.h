@@ -283,6 +283,10 @@ Protocol *__unsafe_unretained* class_copyProtocolList(Class cls, unsigned int *o
  * Creates an instance of this class, allocating memory using malloc.
  */
 id class_createInstance(Class cls, size_t extraBytes);
+/** Compiler-facing fast paths for +alloc, +allocWithZone:, and -init. */
+id objc_alloc(Class cls) OBJC_NONPORTABLE;
+id objc_allocWithZone(Class cls) OBJC_NONPORTABLE;
+id objc_alloc_init(Class cls) OBJC_NONPORTABLE;
 
 /**
  * Returns a pointer to the method metadata for the specified method in this

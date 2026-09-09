@@ -15,6 +15,7 @@ Original upstream announcements remain preserved under
 - Centralized runtime contract suite under `tests/windows/`.
 - Dedicated `benchmarks/` area for performance regression coverage.
 - Windows runtime hot-path benchmark for class access, class lookup and selector lookup.
+- Compiler-facing `objc_alloc`, `objc_allocWithZone`, and `objc_alloc_init` fast paths adapted from current GNUstep libobjc2, including safe fallback for overridden allocation and initialization.
 - Central source manifest shared by supported build entry points.
 - Reproducible PowerShell entry points for LLVM installation, Windows build,
   tests and release packaging.

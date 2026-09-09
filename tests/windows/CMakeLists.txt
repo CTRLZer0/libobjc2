@@ -41,3 +41,7 @@ add_mosaic_runtime_test(
 add_mosaic_runtime_test(
 	mosaic_objc_protocol_contract
 	protocol_contract.c)
+
+add_mosaic_runtime_test(
+	mosaic_objc_fast_paths_contract
+	fast_paths_contract.c)

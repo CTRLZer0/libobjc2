@@ -58,12 +58,63 @@ static BOOL ownsMethod(Class cls, SEL sel)
 	return NO;
 }
 
+static Class ownerForMethod(Class cls, SEL sel)
+{
+	struct objc_slot *slot = objc_get_slot(cls, sel);
+	return (NULL != slot) ? slot->owner : Nil;
+}
+
+static void checkFastAllocInit(Class cls)
+{
+	if (class_isMetaClass(cls)) { return; }
+	static SEL alloc, allocWithZone, init, isTrivialAllocInit;
+	if (NULL == alloc)
+	{
+		alloc = sel_registerName("alloc");
+		allocWithZone = sel_registerName("allocWithZone:");
+		init = sel_registerName("init");
+		isTrivialAllocInit = sel_registerName("_TrivialAllocInit");
+	}
+
+	Class meta = cls->isa;
+	Class trivialOwner = ownerForMethod(meta, isTrivialAllocInit);
+	if (Nil == trivialOwner)
+	{
+		objc_clear_class_flag(cls, objc_class_flag_fast_alloc_init);
+		objc_clear_class_flag(meta, objc_class_flag_fast_alloc_init);
+		return;
+	}
+
+	Class allocOwner = ownerForMethod(meta, alloc);
+	Class allocWithZoneOwner = ownerForMethod(meta, allocWithZone);
+	if ((Nil == allocOwner || allocOwner == trivialOwner) &&
+	    (Nil == allocWithZoneOwner || allocWithZoneOwner == trivialOwner))
+	{
+		objc_set_class_flag(meta, objc_class_flag_fast_alloc_init);
+	}
+	else
+	{
+		objc_clear_class_flag(meta, objc_class_flag_fast_alloc_init);
+	}
+
+	Class initOwner = ownerForMethod(cls, init);
+	if (Nil == initOwner || initOwner->isa == trivialOwner)
+	{
+		objc_set_class_flag(cls, objc_class_flag_fast_alloc_init);
+	}
+	else
+	{
+		objc_clear_class_flag(cls, objc_class_flag_fast_alloc_init);
+	}
+}
+
 /**
  * Checks whether the class implements memory management methods, and whether
  * they are safe to use with ARC.
  */
 static void checkARCAccessors(Class cls)
 {
+	checkFastAllocInit(cls);
 	static SEL retain, release, autorelease, isARC;
 	if (NULL == retain)
 	{

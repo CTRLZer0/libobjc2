@@ -22,6 +22,7 @@ set(LIBOBJC2_RUNTIME_SOURCES
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/caps.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/category_loader.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/class_table.c"
+    "${LIBOBJC2_SOURCE_ROOT}/src/runtime/fast_paths.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/hooks.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/ivar.c"
     "${LIBOBJC2_SOURCE_ROOT}/src/runtime/loader.c"

@@ -138,6 +138,9 @@ LIBRARY libobjc2
         method_getReturnType
         method_getTypeEncoding
         method_setImplementation
+        objc_alloc
+        objc_allocWithZone
+        objc_alloc_init
         objc_allocateClassPair
         objc_allocateProtocol
         objc_copyClassList

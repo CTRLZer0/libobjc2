@@ -88,6 +88,7 @@
     <ClangCompile Include="..\src\runtime\caps.c" />
     <ClangCompile Include="..\src\runtime\category_loader.c" />
     <ClangCompile Include="..\src\runtime\class_table.c" />
+    <ClangCompile Include="..\src\runtime\fast_paths.c" />
     <ClangCompile Include="..\src\dispatch\dtable.c" />
     <ClangCompile Include="..\src\encoding\encoding2.c" />
     <ClangCompile Include="..\src\memory\gc_none.c" />

@@ -260,7 +260,12 @@ enum objc_class_flags
 	/**
 	 * This class is a hidden class used to store associated values.
 	 */
-	objc_class_flag_assoc_class = (1<<8)
+	objc_class_flag_assoc_class = (1<<8),
+	/**
+	 * Allocation and initialization can use the compiler runtime fast path.
+	 * The metaclass bit covers +alloc / +allocWithZone:, the class bit -init.
+	 */
+	objc_class_flag_fast_alloc_init = (1<<9)
 };
 
 /**
