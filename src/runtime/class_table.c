@@ -88,6 +88,19 @@ static int class_hash(const Class class)
 
 static class_table_internal_table *class_table;
 
+static uint64_t class_table_generation = 1;
+enum { CLASS_LOOKUP_CACHE_SIZE = 16 };
+static __thread struct
+{
+	uint64_t generation;
+	const char *keys[CLASS_LOOKUP_CACHE_SIZE];
+	Class entries[CLASS_LOOKUP_CACHE_SIZE];
+} class_lookup_cache;
+
+static inline void class_table_invalidate_cache(void)
+{
+	__atomic_add_fetch(&class_table_generation, 1, __ATOMIC_RELEASE);
+}
 
 #define unresolved_class_next subclass_list
 #define unresolved_class_prev sibling_class
@@ -124,13 +137,34 @@ PRIVATE void class_table_insert(Class class)
 	{
 		zombie_class = class;
 	}
-	class_table_internal_insert(class_table, class);
+	if (class_table_internal_insert(class_table, class))
+	{
+		class_table_invalidate_cache();
+	}
 }
 
 PRIVATE Class class_table_get_safe(const char *class_name)
 {
 	if (NULL == class_name) { return Nil; }
-	return class_table_internal_table_get(class_table, class_name);
+	uint64_t generation = __atomic_load_n(&class_table_generation, __ATOMIC_ACQUIRE);
+	if (class_lookup_cache.generation != generation)
+	{
+		memset(class_lookup_cache.keys, 0, sizeof(class_lookup_cache.keys));
+		memset(class_lookup_cache.entries, 0, sizeof(class_lookup_cache.entries));
+		class_lookup_cache.generation = generation;
+	}
+	uintptr_t key = (uintptr_t)class_name;
+	unsigned slot = (unsigned)(((key >> 4) ^ (key >> 9)) & (CLASS_LOOKUP_CACHE_SIZE - 1));
+	Class cached = class_lookup_cache.entries[slot];
+	if ((cached != Nil) && (class_lookup_cache.keys[slot] == class_name) &&
+	    string_compare(class_name, cached->name)) { return cached; }
+	Class cls = class_table_internal_table_get(class_table, class_name);
+	if (cls != Nil)
+	{
+		class_lookup_cache.keys[slot] = class_name;
+		class_lookup_cache.entries[slot] = cls;
+	}
+	return cls;
 }
 
 PRIVATE Class class_table_next(void **e)
@@ -388,6 +422,7 @@ static void reload_class(struct objc_class *class, struct objc_class *old)
 	// Replace the old class with this one in the class table.  New lookups for
 	// this class will now return this class.
 	class_table_internal_table_set(class_table, (void*)class->name, class);
+	class_table_invalidate_cache();
 
 	// Set the uninstalled dtable.  The compiler could do this as well.
 	class->dtable = uninstalled_dtable;
@@ -498,6 +533,7 @@ PRIVATE void class_table_remove(Class cls)
 {
 	assert(objc_test_class_flag(cls, objc_class_flag_user_created));
 	class_table_internal_remove(class_table, (void*)cls->name);
+	class_table_invalidate_cache();
 }
 
 

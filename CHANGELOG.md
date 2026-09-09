@@ -19,6 +19,7 @@ release announcements remain under `docs/archive/upstream/releases/`.
 
 ### Changed
 
+- Class lookup now uses a generation-invalidated direct-mapped TLS cache that preserves content validation while accelerating common Mosaic working sets.
 - Core runtime development now follows current GNUstep instead of the historical
   Microsoft snapshot.
 - GNUstep implementation sources are reorganized into the CTRLZer0 subsystem
@@ -37,6 +38,7 @@ release announcements remain under `docs/archive/upstream/releases/`.
 
 ### Fixed
 
+- `objc_disposeClassPair()` now handles dynamically-created root classes without dereferencing a nil superclass.
 - `class_addIvar()` now initializes ivar size and ownership flags before applying
   alignment metadata, preventing uninitialized bits from turning dynamic ivars
   into accidental strong or weak references.

@@ -38,5 +38,30 @@ int main(void)
 	CHECK(object_setClass(object, cls) == replacement);
 	CHECK(object_getClass(object) == cls);
 	object_dispose(object);
+
+	Class cached = objc_allocateClassPair(Nil, "MosaicClassCacheContract", 0);
+	CHECK(cached != Nil);
+	objc_registerClassPair(cached);
+	CHECK(objc_lookUpClass("MosaicClassCacheContract") == cached);
+	CHECK((Class)objc_getClass("MosaicClassCacheContract") == cached);
+	objc_disposeClassPair(cached);
+	CHECK(objc_lookUpClass("MosaicClassCacheContract") == Nil);
+
+	Class reloaded = objc_allocateClassPair(Nil, "MosaicClassCacheContract", 0);
+	CHECK(reloaded != Nil);
+	objc_registerClassPair(reloaded);
+	CHECK(objc_lookUpClass("MosaicClassCacheContract") == reloaded);
+	CHECK((Class)objc_getClass("MosaicClassCacheContract") == reloaded);
+	objc_disposeClassPair(reloaded);
+
+	Class bufferA = objc_allocateClassPair(Nil, "MosaicClassBufferA", 0);
+	Class bufferB = objc_allocateClassPair(Nil, "MosaicClassBufferB", 0);
+	CHECK(bufferA != Nil && bufferB != Nil);
+	objc_registerClassPair(bufferA);
+	objc_registerClassPair(bufferB);
+	char mutableName[64] = "MosaicClassBufferA";
+	CHECK(objc_lookUpClass(mutableName) == bufferA);
+	memcpy(mutableName, "MosaicClassBufferB", sizeof("MosaicClassBufferB"));
+	CHECK(objc_lookUpClass(mutableName) == bufferB);
 	return 0;
 }
