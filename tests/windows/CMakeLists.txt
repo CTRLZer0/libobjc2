@@ -12,3 +12,19 @@ endfunction()
 add_mosaic_runtime_test(
 	mosaic_objc_runtime_contract
 	runtime_contract.c)
+
+add_mosaic_runtime_test(
+	mosaic_objc_selector_contract
+	selector_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_class_contract
+	class_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_ivar_contract
+	ivar_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_weak_contract
+	weak_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_memory_contract
+	memory_contract.c)
