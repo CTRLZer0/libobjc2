@@ -8,6 +8,9 @@
 #include <assert.h>
 #include <atomic>
 #include <vector>
+#if defined(__APPLE__)
+#include <os/lock.h>
+#endif
 #include <tsl/robin_map.h>
 #import "lock.h"
 #import "objc/runtime.h"
@@ -456,20 +459,20 @@ extern "C" OBJC_PUBLIC size_t object_getRetainCount_np(id obj)
 	return RefCount::fromObject(obj).retainCount();
 }
 
-static id retain_fast(id obj, BOOL isWeak)
+static inline id retain_fast(id obj)
 {
-	RefCount refCount = RefCount::fromObject(obj);
-	if (LIKELY(!isWeak))
-	{
-		refCount.increment();
-		return obj;
-	}
-	return refCount.incrementIfLive() ? obj : nil;
+	RefCount::fromObject(obj).increment();
+	return obj;
+}
+
+static inline id retain_fast_weak(id obj)
+{
+	return RefCount::fromObject(obj).incrementIfLive() ? obj : nil;
 }
 
 extern "C" OBJC_PUBLIC id objc_retain_fast_np(id obj)
 {
-	return retain_fast(obj, NO);
+	return retain_fast(obj);
 }
 
 __attribute__((always_inline))
@@ -490,7 +493,8 @@ static inline BOOL isPersistentObject(id obj)
 	return objc_test_class_flag(obj->isa, objc_class_flag_permanent_instances);
 }
 
-static inline id retain(id obj, BOOL isWeak)
+template<bool IsWeak>
+static inline id retain(id obj)
 {
 	if (isPersistentObject(obj)) { return obj; }
 	Class cls = obj->isa;
@@ -500,7 +504,11 @@ static inline id retain(id obj, BOOL isWeak)
 	}
 	if (objc_test_class_flag(cls, objc_class_flag_fast_arc))
 	{
-		return retain_fast(obj, isWeak);
+		if constexpr (IsWeak)
+		{
+			return retain_fast_weak(obj);
+		}
+		return retain_fast(obj);
 	}
 	return ManualRetainReleaseMessage(obj, retain, id(*)(id, SEL));
 }
@@ -760,7 +768,7 @@ extern "C" OBJC_PUBLIC id objc_retainAutoreleasedReturnValue(id obj)
 extern "C" OBJC_PUBLIC id objc_retain(id obj)
 {
 	if (nil == obj) { return nil; }
-	return retain(obj, NO);
+	return retain<false>(obj);
 }
 
 extern "C" OBJC_PUBLIC id objc_retainAutorelease(id obj)
@@ -771,7 +779,7 @@ extern "C" OBJC_PUBLIC id objc_retainAutorelease(id obj)
 extern "C" OBJC_PUBLIC id objc_retainAutoreleaseReturnValue(id obj)
 {
 	if (nil == obj) { return obj; }
-	return objc_autoreleaseReturnValue(retain(obj, NO));
+	return objc_autoreleaseReturnValue(retain<false>(obj));
 }
 
 
@@ -884,6 +892,73 @@ static inline WeakRef *asWeakRef(id p)
 	return nullptr;
 }
 
+/**
+ * Weak-reference stripes require recursion because legacy weak-load hooks may
+ * re-enter the weak runtime while a stripe is held.  On Apple platforms a
+ * pthread recursive mutex is substantially more expensive than os_unfair_lock,
+ * so keep recursion in this thin wrapper and use the cheaper primitive for the
+ * uncontended first entry.  Other platforms preserve the runtime's existing
+ * recursive-mutex implementation.
+ */
+class WeakMutex
+{
+#if defined(__APPLE__)
+	os_unfair_lock storage = OS_UNFAIR_LOCK_INIT;
+	std::atomic<const void*> owner{nullptr};
+	unsigned depth = 0;
+
+	static inline const void *threadToken()
+	{
+		static thread_local unsigned char token;
+		return &token;
+	}
+#else
+	mutex_t storage;
+#endif
+
+public:
+	WeakMutex()
+	{
+#if !defined(__APPLE__)
+		INIT_LOCK(storage);
+#endif
+	}
+	WeakMutex(const WeakMutex&) = delete;
+	WeakMutex &operator=(const WeakMutex&) = delete;
+
+	inline void lock()
+	{
+#if defined(__APPLE__)
+		const void *me = threadToken();
+		if (owner.load(std::memory_order_relaxed) == me)
+		{
+			++depth;
+			return;
+		}
+		os_unfair_lock_lock(&storage);
+		owner.store(me, std::memory_order_relaxed);
+		depth = 1;
+#else
+		LOCK(&storage);
+#endif
+	}
+
+	inline void unlock()
+	{
+#if defined(__APPLE__)
+		assert(owner.load(std::memory_order_relaxed) == threadToken());
+		assert(depth > 0);
+		if (--depth == 0)
+		{
+			owner.store(nullptr, std::memory_order_relaxed);
+			os_unfair_lock_unlock(&storage);
+		}
+#else
+		UNLOCK(&storage);
+#endif
+	}
+};
+
 // Sharded weak-reference table: the striping is internal; callers work in terms
 // of objects and slots.  NumShards is a compile-time power of two.  Every
 // operation runs inside withSlotLocked / withStoreLocked, which hold the owning
@@ -900,10 +975,10 @@ class WeakRefTable
 	// by the stripe lock the callers already hold.
 	struct alignas(64) Shard
 	{
-		mutex_t lock;
+		WeakMutex lock;
 		weak_ref_map map;
 		WeakRef *freeList = nullptr;
-		Shard() : map(16) { INIT_LOCK(lock); }
+		Shard() : map(16) {}
 	};
 	Shard shards[NumShards];
 
@@ -934,15 +1009,15 @@ public:
 				else if (a > b) { size_t x = a; a = b; b = x; }
 			}
 			else if (a == NONE) { a = b; b = NONE; }
-			if (a != NONE) { s0 = &t.shards[a]; LOCK(&s0->lock); }
-			if (b != NONE) { s1 = &t.shards[b]; LOCK(&s1->lock); }
+			if (a != NONE) { s0 = &t.shards[a]; s0->lock.lock(); }
+			if (b != NONE) { s1 = &t.shards[b]; s1->lock.lock(); }
 		}
 		Guard(const Guard&) = delete;
 		Guard &operator=(const Guard&) = delete;
 		~Guard()
 		{
-			if (s1) { UNLOCK(&s1->lock); }
-			if (s0) { UNLOCK(&s0->lock); }
+			if (s1) { s1->lock.unlock(); }
+			if (s0) { s0->lock.unlock(); }
 		}
 	};
 
@@ -1239,10 +1314,13 @@ extern "C" OBJC_PUBLIC id objc_loadWeakRetained(id* addr)
 		else if (!objc_test_class_flag(cls, objc_class_flag_fast_arc))
 		{
 			obj = _objc_weak_load(obj);
+			// The hook may return nil or a different object, so use the full
+			// retain path after arbitrary legacy weak-load handling.
+			return (obj == nil) ? nil : retain<true>(obj);
 		}
-		// _objc_weak_load() can return nil
-		if (obj == nil) { return nil; }
-		return retain(obj, YES);
+		// We already ruled out persistent objects and blocks and established
+		// fast-ARC support above.  Avoid repeating those class checks.
+		return retain_fast_weak(obj);
 	});
 }
 
