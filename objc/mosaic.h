@@ -1,0 +1,18 @@
+#ifndef OBJC_MOSAIC_H_INCLUDED
+#define OBJC_MOSAIC_H_INCLUDED
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Initializes the libobjc2 runtime core without loading a compiler-emitted
+ * GNUstep Objective-C module. Mosaic uses its own Mach-O metadata loader.
+ */
+void mosaic_objc_runtime_initialize(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
