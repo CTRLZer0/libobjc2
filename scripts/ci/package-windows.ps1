@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: MIT
 # Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
-# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# CTRLZer0 work is licensed under MIT; see COPYING and NOTICE.md for licensing
 # and provenance details.
 param(
     [Parameter(Mandatory = $true)][string]$BuildDir,
@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "include") | Out-Nul
 Copy-Item $library (Join-Path $stage "lib\mosaic_objc_runtime.lib")
 Copy-Item -Recurse (Join-Path $repo "objc") (Join-Path $stage "include\objc")
 
-foreach ($file in @("README.md", "CHANGELOG.md", "COPYING", "LICENSE-CTRLZERO", "NOTICE.md")) {
+foreach ($file in @("README.md", "CHANGELOG.md", "COPYING", "NOTICE.md")) {
     Copy-Item (Join-Path $repo $file) (Join-Path $stage $file)
 }
 

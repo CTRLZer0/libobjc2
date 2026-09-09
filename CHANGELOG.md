@@ -21,6 +21,7 @@ Original upstream announcements remain preserved under
 - Per-push / pull-request CI plus automated nightly and versioned releases.
 ### Changed
 
+- Repository licensing is unified under MIT while preserving GNUstep / Microsoft provenance and third-party terms.
 - Repository detached from its historical fork network and maintained directly
   by CTRLZer0.
 - Runtime implementations reorganized into subsystem directories under `src/`.

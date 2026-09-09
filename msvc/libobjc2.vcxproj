@@ -1,5 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<!-- SPDX-License-Identifier: MIT AND AGPL-3.0-only; original libobjc2 portions MIT, CTRLZer0 modifications AGPL-3.0-only. -->
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 CTRLZer0 contributors for CTRLZer0 modifications. -->
+<!-- CTRLZer0 modifications use the same MIT terms as upstream; see COPYING and NOTICE.md. -->
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|ARM">

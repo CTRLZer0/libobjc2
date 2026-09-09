@@ -1,4 +1,6 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders. -->
+<!-- CTRLZer0 work is licensed under MIT; see COPYING and NOTICE.md. -->
 # Continuous integration and releases
 
 The repository uses the same PowerShell entry points locally and in GitHub

@@ -1,6 +1,6 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: MIT
 # Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
-# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# CTRLZer0 work is licensed under MIT; see COPYING and NOTICE.md for licensing
 # and provenance details.
 if(NOT WIN32)
 	return()

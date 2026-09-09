@@ -1,6 +1,7 @@
-# SPDX-License-Identifier: MIT AND AGPL-3.0-only
-# Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
-# See COPYING, LICENSE-CTRLZERO and NOTICE.md.
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 CTRLZer0 contributors for CTRLZer0 modifications.
+# CTRLZer0 modifications use the same MIT terms as the inherited libobjc2 code.
+# Original upstream attribution is preserved; see COPYING and NOTICE.md.
 
 cmake_minimum_required(VERSION 2.8)
 

@@ -75,10 +75,9 @@ used as the project's changelog.
 
 ## Licensing and provenance
 
-See `COPYING`, `LICENSE-CTRLZERO` and `NOTICE.md`.
+The repository is licensed under the MIT License in `COPYING`, except for any
+third-party material that explicitly carries different terms. Historical
+GNUstep / Microsoft attribution and copyright notices are preserved.
 
-Inherited libobjc2 code retains its original MIT terms and copyright notices.
-New CTRLZer0-owned files are AGPL-3.0-only when explicitly marked. In inherited
-files substantially modified by CTRLZer0, SPDX headers may identify the file as
-`MIT AND AGPL-3.0-only`: original portions remain MIT while CTRLZer0 additions
-are licensed under AGPL-3.0-only.
+CTRLZer0-authored files and modifications are released under the same MIT
+terms. See `NOTICE.md` for provenance details.

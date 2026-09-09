@@ -3,18 +3,21 @@
 This repository is maintained independently by CTRLZer0 and contains code
 derived from the GNUstep Objective-C runtime and Microsoft's libobjc2 port.
 
-Historical runtime code remains MIT licensed. Original copyright and license
-terms are preserved in `COPYING`, source headers and repository history.
+Unless a third-party file explicitly states otherwise, source code in this
+repository is distributed under the MIT License in `COPYING`.
 
-CTRLZer0 adds Windows host-runtime integration for Mosaic, loader-independent
-initialization, portable host dispatch support, build integration, tests,
-benchmarks and ongoing runtime modernization.
+Historical libobjc2 code remains under its original MIT terms and copyright
+notices. New CTRLZer0-authored files and CTRLZer0 modifications to inherited
+files are also released under the MIT License. This does not remove, replace,
+or transfer any upstream copyright ownership or attribution.
 
-New files that are original CTRLZer0 work use
-`SPDX-License-Identifier: AGPL-3.0-only` and are governed by
-`LICENSE-CTRLZERO`.
+The current CTRLZer0 tree includes Windows host-runtime integration for Mosaic,
+loader-independent initialization, portable host dispatch support, build and CI
+integration, tests, benchmarks, and ongoing runtime modernization.
+Third-party code retains its own copyright, license, attribution, patent,
+NOTICE, and provenance requirements. Historical material preserved under
+`docs/archive/` remains archival and is not rewritten merely to match current
+repository headers.
 
-Inherited files substantially modified by CTRLZer0 may use
-`SPDX-License-Identifier: MIT AND AGPL-3.0-only`. In those files, inherited
-portions remain under MIT while CTRLZer0 additions are licensed under
-AGPL-3.0-only. Original attribution must not be removed during refactors.
+MIT-covered source files should use `SPDX-License-Identifier: MIT`. Original
+copyright notices and meaningful provenance must be preserved during refactors.
