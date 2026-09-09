@@ -1,5 +1,6 @@
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
+#include "crt_compat.h"
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -492,13 +493,13 @@ PRIVATE struct objc_property propertyFromAttrs(const objc_property_attribute_t *
                                                           const char *name)
 {
 	struct objc_property p;
-	p.name = strdup(name);
+	p.name = objc2_strdup(name);
 	p.attributes = encodingFromAttrs(attributes, attributeCount);
 	p.type = NULL;
 	const objc_property_attribute_t *attr = findAttribute('T', attributes, attributeCount);
 	if (attr)
 	{
-		p.type = strdup(attr->value);
+		p.type = objc2_strdup(attr->value);
 	}
 	p.getter = NULL;
 	attr = findAttribute('G', attributes, attributeCount);
@@ -567,7 +568,7 @@ char *property_copyAttributeValue(objc_property_t property,
 		case 'T':
 		{
 			const char *types = property_getTypeEncoding(property);
-			return (NULL == types) ? NULL : strdup(types);
+			return (NULL == types) ? NULL : objc2_strdup(types);
 		}
 		case 'D':
 		case 'R':
@@ -576,19 +577,19 @@ char *property_copyAttributeValue(objc_property_t property,
 		case '&':
 		case 'N':
 		{
-			return strchr(attributes, attributeName[0]) ? strdup("") : 0;
+			return strchr(attributes, attributeName[0]) ? objc2_strdup("") : 0;
 		}
 		case 'V':
 		{
-			return strdup(property_getIVar(property));
+			return objc2_strdup(property_getIVar(property));
 		}
 		case 'S':
 		{
-			return strdup(sel_getName(property->setter));
+			return objc2_strdup(sel_getName(property->setter));
 		}
 		case 'G':
 		{
-			return strdup(sel_getName(property->getter));
+			return objc2_strdup(sel_getName(property->getter));
 		}
 	}
 	return 0;

@@ -20,7 +20,7 @@
 #define __builtin_unreachable abort
 #endif
 
-#define EH_EXCEPTION_NUMBER ('msc' | 0xE0000000)
+#define EH_EXCEPTION_NUMBER 0xE06D7363u
 #define EH_MAGIC_NUMBER1 0x19930520
 #define EXCEPTION_NONCONTINUABLE 0x1
 

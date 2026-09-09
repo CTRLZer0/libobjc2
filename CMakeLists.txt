@@ -339,7 +339,7 @@ if (BUILD_SHARED_LIBOBJC)
 endif ()
 
 if (BUILD_STATIC_LIBOBJC)
-	add_library(objc-static STATIC ${libobjc_C_SRCS} ${libobjc_ASM_SRCS} ${libobjc_OBJC_SRCS} ${libobjc_OBJCXX_SRCS} ${libobjc_CXX_SRCS})
+	add_library(objc-static STATIC ${libobjc_C_SRCS} ${libobjc_ASM_SRCS} ${libobjc_OBJC_SRCS} ${libobjc_OBJCXX_SRCS} ${libobjc_CXX_SRCS} ${libobjc_ASM_OBJS})
 	target_compile_options(objc-static PRIVATE "$<$<OR:$<COMPILE_LANGUAGE:OBJC>,$<COMPILE_LANGUAGE:OBJCXX>>:-Wno-gnu-folding-constant;-Wno-deprecated-objc-isa-usage;-Wno-objc-root-class;-fobjc-runtime=gnustep-2.0>$<$<COMPILE_LANGUAGE:C>:-Xclang;-fexceptions;-Wno-gnu-folding-constant>")
 	target_compile_features(objc-static PRIVATE cxx_std_20)
 	target_link_libraries(objc-static PRIVATE "$<BUILD_INTERFACE:tsl::robin_map>")
@@ -348,9 +348,13 @@ if (BUILD_STATIC_LIBOBJC)
 		INTERFACE
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
 		$<INSTALL_INTERFACE:include>)
+	set(_libobjc_static_output_name ${LIBOBJC_NAME})
+	if (WIN32 AND BUILD_SHARED_LIBOBJC)
+		set(_libobjc_static_output_name "${LIBOBJC_NAME}-static")
+	endif()
 	set_target_properties(objc-static PROPERTIES
 		POSITION_INDEPENDENT_CODE true
-		OUTPUT_NAME ${LIBOBJC_NAME})
+		OUTPUT_NAME ${_libobjc_static_output_name})
 	list(APPEND INSTALL_TARGETS objc-static)
 endif ()
 

@@ -4,6 +4,7 @@
 #include "class.h"
 #include "lock.h"
 #include "legacy.h"
+#include "crt_compat.h"
 #include <stdlib.h>
 #include <assert.h>
 
@@ -308,10 +309,11 @@ get_method_list(Protocol *p,
 struct objc_method_description *protocol_copyMethodDescriptionList(Protocol *p,
 	BOOL isRequiredMethod, BOOL isInstanceMethod, unsigned int *count)
 {
-	if ((NULL == p) || (NULL == count)){ return NULL; }
+	if (NULL == count) { return NULL; }
+	*count = 0;
+	if (NULL == p) { return NULL; }
 	struct objc_protocol_method_description_list *list =
 		get_method_list(p, isRequiredMethod, isInstanceMethod);
-	*count = 0;
 	if (NULL == list || list->count == 0) { return NULL; }
 
 	*count = list->count;
@@ -327,9 +329,10 @@ struct objc_method_description *protocol_copyMethodDescriptionList(Protocol *p,
 
 Protocol*__unsafe_unretained* protocol_copyProtocolList(Protocol *p, unsigned int *count)
 {
-	if (NULL == p) { return NULL; }
+	if (NULL == count) { return NULL; }
 	*count = 0;
-	if (p->protocol_list == NULL || p->protocol_list->count ==0)
+	if (NULL == p) { return NULL; }
+	if (p->protocol_list == NULL || p->protocol_list->count == 0)
 	{
 		return NULL;
 	}
@@ -346,11 +349,13 @@ Protocol*__unsafe_unretained* protocol_copyProtocolList(Protocol *p, unsigned in
 objc_property_t *protocol_copyPropertyList2(Protocol *p, unsigned int *outCount,
 		BOOL isRequiredProperty, BOOL isInstanceProperty)
 {
+	if (NULL == outCount) { return NULL; }
+	*outCount = 0;
+	if (NULL == p) { return NULL; }
 	struct objc_property_list *properties =
 	    isInstanceProperty ?
 	        (isRequiredProperty ? p->properties : p->optional_properties) :
 	        (isRequiredProperty ? p->class_properties : p->optional_class_properties);
-	if (NULL == p) { return NULL; }
 	// If it's an old protocol, it won't have any of the other options.
 	if (!isRequiredProperty && !isInstanceProperty &&
 	    !protocol_hasOptionalMethodsAndProperties(p))
@@ -394,7 +399,7 @@ objc_property_t protocol_getProperty(Protocol *p,
                                      BOOL isRequiredProperty,
                                      BOOL isInstanceProperty)
 {
-	if (NULL == p) { return NULL; }
+	if ((NULL == p) || (NULL == name)) { return NULL; }
 	if (!protocol_hasOptionalMethodsAndProperties(p))
 	{
 		return NULL;
@@ -428,6 +433,7 @@ get_method_description(Protocol *p,
                        BOOL isRequiredMethod,
                        BOOL isInstanceMethod)
 {
+	if ((NULL == p) || (NULL == aSel)) { return NULL; }
 	struct objc_protocol_method_description_list *list =
 		get_method_list(p, isRequiredMethod, isInstanceMethod);
 	if (NULL == list)
@@ -437,7 +443,8 @@ get_method_description(Protocol *p,
 	for (int i=0 ; i<list->count ; i++)
 	{
 		SEL s = protocol_method_at_index(list, i)->selector;
-		if (sel_isEqual(s, aSel))
+		if (sel_isEqual(s, aSel) ||
+		    (strcmp(sel_getName(s), sel_getName(aSel)) == 0))
 		{
 			return protocol_method_at_index(list, i);
 		}
@@ -457,7 +464,7 @@ protocol_getMethodDescription(Protocol *p,
 	if (m != NULL)
 	{
 		SEL s = m->selector;
-		d.name = s;
+		d.name = aSel;
 		d.types = sel_getType_np(s);
 	}
 	return d;
@@ -530,10 +537,15 @@ Protocol*__unsafe_unretained* objc_copyProtocolList(unsigned int *outCount)
 
 Protocol *objc_allocateProtocol(const char *name)
 {
-	if (objc_getProtocol(name) != NULL) { return NULL; }
-	// Create this as an object and add extra space at the end for the properties.
+	if ((NULL == name) || ('\0' == name[0]) || (objc_getProtocol(name) != NULL)) { return NULL; }
 	Protocol *p = (Protocol*)class_createInstance(&_OBJC_CLASS___IncompleteProtocol, 0);
-	p->name = strdup(name);
+	if (NULL == p) { return NULL; }
+	p->name = objc2_strdup(name);
+	if (NULL == p->name)
+	{
+		object_dispose((id)p);
+		return NULL;
+	}
 	return p;
 }
 void objc_registerProtocol(Protocol *proto)
@@ -608,18 +620,15 @@ void protocol_addProtocol(Protocol *aProtocol, Protocol *addition)
 {
 	if ((NULL == aProtocol) || (NULL == addition)) { return; }
 	if (aProtocol->isa != (id)&_OBJC_CLASS___IncompleteProtocol) { return; }
-	if (NULL == aProtocol->protocol_list)
-	{
-		aProtocol->protocol_list = calloc(1, sizeof(struct objc_property_list) + sizeof(Protocol*));
-		aProtocol->protocol_list->count = 1;
-	}
-	else
-	{
-		aProtocol->protocol_list->count++;
-		aProtocol->protocol_list = realloc(aProtocol->protocol_list, sizeof(struct objc_property_list) +
-				aProtocol->protocol_list->count * sizeof(Protocol*));
-	}
-	aProtocol->protocol_list->list[aProtocol->protocol_list->count-1] = (Protocol*)addition;
+	size_t oldCount = aProtocol->protocol_list ? aProtocol->protocol_list->count : 0;
+	size_t newCount = oldCount + 1;
+	struct objc_protocol_list *updated = realloc(aProtocol->protocol_list,
+		sizeof(struct objc_protocol_list) + newCount * sizeof(Protocol*));
+	if (NULL == updated) { return; }
+	if (0 == oldCount) { updated->next = NULL; }
+	updated->count = newCount;
+	updated->list[oldCount] = (Protocol*)addition;
+	aProtocol->protocol_list = updated;
 }
 void protocol_addProperty(Protocol *aProtocol,
                           const char *name,

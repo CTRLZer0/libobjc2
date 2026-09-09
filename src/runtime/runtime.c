@@ -7,8 +7,9 @@
 #include "lock.h"
 #include "dtable.h"
 #include "gc_ops.h"
+#include "crt_compat.h"
 
-/* Make glibc export strdup() */
+/* Make glibc export objc2_strdup() */
 
 #if defined __GLIBC__
 	#define __USE_BSD 1
@@ -129,8 +130,10 @@ BOOL class_addIvar(Class cls, const char *name, size_t size, uint8_t alignment,
 				(ivarlist->count) * sizeof(struct objc_ivar));
 	}
 	Ivar ivar = ivar_at_index(cls->ivars, cls->ivars->count - 1);
-	ivar->name = strdup(name);
-	ivar->type = strdup(types);
+	ivar->name = objc2_strdup(name);
+	ivar->type = objc2_strdup(types);
+	ivar->size = (uint32_t)size;
+	ivar->flags = 0;
 	ivarSetAlign(ivar, alignment);
 	// Round up the offset of the ivar so it is correctly aligned.
 	long offset = cls->instance_size;
@@ -179,7 +182,7 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 	methods->count = 1;
 	struct objc_method *m0 = method_at_index(methods, 0);
 	m0->selector = sel_registerTypedName_np(methodName, types);
-	m0->types = strdup(types);
+	m0->types = objc2_strdup(types);
 	m0->imp = imp;
 
 	if (classHasDtable(cls))
@@ -764,7 +767,7 @@ Class objc_allocateClassPair(Class superclass, const char *name, size_t extraByt
 		metaClass->isa = superclass->isa;
 		metaClass->super_class = superclass->isa;
 	}
-	metaClass->name = strdup(name);
+	metaClass->name = objc2_strdup(name);
 	metaClass->info = objc_class_flag_meta | objc_class_flag_user_created;
 	metaClass->dtable = uninstalled_dtable;
 	metaClass->instance_size = sizeof(struct objc_class);
@@ -773,7 +776,7 @@ Class objc_allocateClassPair(Class superclass, const char *name, size_t extraByt
 	newClass->isa = metaClass;
 	newClass->super_class = superclass;
 
-	newClass->name = strdup(name);
+	newClass->name = objc2_strdup(name);
 	newClass->info = objc_class_flag_user_created;
 	newClass->dtable = uninstalled_dtable;
 

@@ -14,6 +14,7 @@
 #include <sys/mman.h>
 #else
 #include "safewindows.h"
+#include "crt_compat.h"
 #endif
 #include "objc/runtime.h"
 #include "objc/blocks_runtime.h"
@@ -409,7 +410,7 @@ PRIVATE size_t lengthOfTypeEncoding(const char *types);
 
 char *block_copyIMPTypeEncoding_np(id block)
 {
-	char *buffer = strdup(block_getType_np(block));
+	char *buffer = objc2_strdup(block_getType_np(block));
 	if (NULL == buffer) { return NULL; }
 	char *replace = buffer;
 	// Skip the return type

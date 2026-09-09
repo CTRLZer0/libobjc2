@@ -299,6 +299,14 @@ Protocol *__unsafe_unretained* class_copyProtocolList(Class cls, unsigned int *o
 OBJC_PUBLIC OBJC_RETURNS_RETAINED
 id class_createInstance(Class cls, size_t extraBytes);
 
+/** Compiler-facing allocation and initialization fast paths. */
+OBJC_PUBLIC OBJC_RETURNS_RETAINED
+id objc_alloc(Class cls) OBJC_NONPORTABLE;
+OBJC_PUBLIC OBJC_RETURNS_RETAINED
+id objc_allocWithZone(Class cls) OBJC_NONPORTABLE;
+OBJC_PUBLIC OBJC_RETURNS_RETAINED
+id objc_alloc_init(Class cls) OBJC_NONPORTABLE;
+
 /**
  * Returns a pointer to the method metadata for the specified method in this
  * class.  This is an opaque data type and must be accessed with the method_*()

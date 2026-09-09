@@ -1,11 +1,13 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "objc/runtime.h"
+#include "objc/mosaic.h"
 #include "objc/objc-auto.h"
 #include "objc/objc-arc.h"
 #include "lock.h"
 #include "loader.h"
 #include "visibility.h"
+#include "crt_compat.h"
 #include "legacy.h"
 #ifdef ENABLE_GC
 #include <gc/gc.h>
@@ -64,7 +66,7 @@ static void init_runtime(void)
 #endif
 		init_builtin_classes();
 		first_run = NO;
-		if (getenv("LIBOBJC_MEMORY_PROFILE"))
+		if (objc2_getenv_exists("LIBOBJC_MEMORY_PROFILE"))
 		{
 			atexit(log_memory_stats);
 		}
@@ -81,6 +83,11 @@ static void init_runtime(void)
 			_dispatch_end_NSAutoReleasePool = objc_autoreleasePoolPop;
 		}
 	}
+}
+
+OBJC_PUBLIC void mosaic_objc_runtime_initialize(void)
+{
+	init_runtime();
 }
 
 /**
