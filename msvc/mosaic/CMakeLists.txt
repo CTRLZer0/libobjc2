@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
 cmake_minimum_required(VERSION 3.24)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -90,10 +91,7 @@ target_compile_options(mosaic_objc_runtime PRIVATE /W3)
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(mosaic_objc_runtime_contract
-        "${CMAKE_CURRENT_LIST_DIR}/tests/runtime_contract.c")
-    target_link_libraries(mosaic_objc_runtime_contract PRIVATE
-        Mosaic::ObjCRuntime)
-    add_test(NAME mosaic_objc_runtime_contract
-        COMMAND mosaic_objc_runtime_contract)
+    add_subdirectory(
+        "${MOSAIC_LIBOBJC2_ROOT}/tests/windows"
+        "${CMAKE_CURRENT_BINARY_DIR}/tests-windows")
 endif()

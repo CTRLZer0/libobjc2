@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
 #ifndef OBJC_MOSAIC_H_INCLUDED
 #define OBJC_MOSAIC_H_INCLUDED
 

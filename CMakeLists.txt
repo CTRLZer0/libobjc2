@@ -346,6 +346,6 @@ set(TESTS TRUE CACHE BOOL
 
 if (TESTS)
 	enable_testing()
-	add_subdirectory(Test)
+	add_subdirectory(tests)
 endif (TESTS)
 

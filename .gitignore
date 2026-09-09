@@ -3,3 +3,8 @@
 Build
 Debug
 Release
+
+build-*/
+out/
+probe-x64/
+CMakeUserPresets.json
