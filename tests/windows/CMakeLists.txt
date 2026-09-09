@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 CTRLZer0 contributors and applicable copyright holders.
+# Original CTRLZer0 work; see LICENSE-CTRLZERO and NOTICE.md for licensing
+# and provenance details.
 if(NOT WIN32)
 	return()
 endif()
@@ -28,3 +31,6 @@ add_mosaic_runtime_test(
 add_mosaic_runtime_test(
 	mosaic_objc_memory_contract
 	memory_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_protocol_contract
+	protocol_contract.c)

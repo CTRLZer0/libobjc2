@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: MIT AND AGPL-3.0-only
+ * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+ * Copyright (C) 2026 CTRLZer0 contributors for CTRLZer0 modifications.
+ * Original upstream copyright and attribution remain under COPYING and the
+ * preserved source / repository history. See LICENSE-CTRLZERO and NOTICE.md.
+ */
+
 #include "objc/runtime.h"
 #include "crt_compat.h"
 #include "protocol.h"
@@ -5,6 +13,8 @@
 #include "class.h"
 #include "lock.h"
 #include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
 
 #define BUFFER_TYPE struct objc_protocol_list
 #include "buffer.h"
@@ -27,10 +37,21 @@ static int protocol_hash(const struct objc_protocol2 *protocol)
 #define MAP_TABLE_HASH_VALUE protocol_hash
 #include "hash_table.h"
 
+PRIVATE void objc_protocol2_link_anchor(void);
+
 static protocol_table *known_protocol_table;
+
+static void *resize_tail_array(void *storage, size_t header_size,
+                               size_t element_size, size_t count)
+{
+	if (count > (SIZE_MAX - header_size) / element_size) { return NULL; }
+	size_t bytes = header_size + element_size * count;
+	return storage ? realloc(storage, bytes) : calloc(1, bytes);
+}
 
 void init_protocol_table(void)
 {
+	objc_protocol2_link_anchor();
 	protocol_initialize(&known_protocol_table, 128);
 }
 
@@ -44,11 +65,20 @@ struct objc_protocol2 *protocol_for_name(const char *name)
 	return protocol_table_get(known_protocol_table, name);
 }
 
-static id ObjC2ProtocolClass = 0;
+static id ObjC2ProtocolClass = nil;
+
+static id protocol2Class(void)
+{
+	if (ObjC2ProtocolClass == nil)
+	{
+		ObjC2ProtocolClass = objc_getClass("Protocol2");
+	}
+	return ObjC2ProtocolClass;
+}
 
 static id incompleteProtocolClass(void)
 {
-	static id IncompleteProtocolClass = 0;
+	static id IncompleteProtocolClass = nil;
 	if (IncompleteProtocolClass == nil)
 	{
 		IncompleteProtocolClass = objc_getClass("__IncompleteProtocol");
@@ -66,13 +96,17 @@ static int isEmptyProtocol(struct objc_protocol2 *aProto)
 			(aProto->class_methods->count == 0)) &&
 		((aProto->protocol_list == NULL) ||
 		  (aProto->protocol_list->count == 0));
-	if (aProto->isa == ObjC2ProtocolClass)
+	id protocol2 = protocol2Class();
+	if (protocol2 != nil && aProto->isa == protocol2)
 	{
 		struct objc_protocol2 *p2 = (struct objc_protocol2*)aProto;
-		isEmpty &= (p2->optional_instance_methods->count == 0);
-		isEmpty &= (p2->optional_class_methods->count == 0);
-		isEmpty &= (p2->properties == 0) || (p2->properties->count == 0);
-		isEmpty &= (p2->optional_properties == 0) || (p2->optional_properties->count == 0);
+		isEmpty &= (p2->optional_instance_methods == NULL) ||
+			(p2->optional_instance_methods->count == 0);
+		isEmpty &= (p2->optional_class_methods == NULL) ||
+			(p2->optional_class_methods->count == 0);
+		isEmpty &= (p2->properties == NULL) || (p2->properties->count == 0);
+		isEmpty &= (p2->optional_properties == NULL) ||
+			(p2->optional_properties->count == 0);
 	}
 	return isEmpty;
 }
@@ -85,8 +119,8 @@ static void makeProtocolEqualToProtocol(struct objc_protocol2 *p1,
 	COPY(instance_methods);
 	COPY(class_methods);
 	COPY(protocol_list);
-	if (p1->isa == ObjC2ProtocolClass &&
-		p2->isa == ObjC2ProtocolClass)
+	id protocol2 = protocol2Class();
+	if (protocol2 != nil && p1->isa == protocol2 && p2->isa == protocol2)
 	{
 		COPY(optional_instance_methods);
 		COPY(optional_class_methods);
@@ -98,10 +132,7 @@ static void makeProtocolEqualToProtocol(struct objc_protocol2 *p1,
 
 static struct objc_protocol2 *unique_protocol(struct objc_protocol2 *aProto)
 {
-	if (ObjC2ProtocolClass == 0)
-	{
-		ObjC2ProtocolClass = objc_getClass("Protocol2");
-	}
+	protocol2Class();
 	struct objc_protocol2 *oldProtocol =
 		protocol_for_name(aProto->name);
 	if (NULL == oldProtocol)
@@ -162,7 +193,7 @@ static BOOL init_protocols(struct objc_protocol_list *protocols)
 	if (nil == protocol_class2)
 	{
 		protocol_class = objc_getClass("Protocol");
-		protocol_class2 = objc_getClass("Protocol2");
+		protocol_class2 = protocol2Class();
 	}
 	if (nil == protocol_class2 || nil == protocol_class)
 	{
@@ -283,12 +314,7 @@ get_method_list(Protocol *p,
                 BOOL isRequiredMethod,
                 BOOL isInstanceMethod)
 {
-	static id protocol2 = NULL;
-
-	if (NULL == protocol2)
-	{
-		protocol2 = objc_getClass("Protocol2");
-	}
+	id protocol2 = protocol2Class();
 	struct objc_method_description_list *list;
 	if (isRequiredMethod)
 	{
@@ -321,47 +347,54 @@ get_method_list(Protocol *p,
 struct objc_method_description *protocol_copyMethodDescriptionList(Protocol *p,
 	BOOL isRequiredMethod, BOOL isInstanceMethod, unsigned int *count)
 {
-	if ((NULL == p) || (NULL == count)){ return NULL; }
+	if (NULL == count) { return NULL; }
+	*count = 0;
+	if (NULL == p) { return NULL; }
 	struct objc_method_description_list *list =
 		get_method_list(p, isRequiredMethod, isInstanceMethod);
-	*count = 0;
-	if (NULL == list || list->count == 0) { return NULL; }
+	if (NULL == list || list->count <= 0) { return NULL; }
 
-	*count = list->count;
 	struct objc_method_description *out =
-		calloc(sizeof(struct objc_method_description), list->count);
-	for (int i=0 ; i < (list->count) ; i++)
+		calloc((size_t)list->count, sizeof(*out));
+	if (NULL == out) { return NULL; }
+	for (int i=0 ; i < list->count ; i++)
 	{
 		out[i].name = sel_registerTypedName_np(list->methods[i].name,
 		                                       list->methods[i].types);
 		out[i].types = list->methods[i].types;
 	}
+	*count = (unsigned int)list->count;
 	return out;
 }
 
 Protocol*__unsafe_unretained* protocol_copyProtocolList(Protocol *p, unsigned int *count)
 {
-	if (NULL == p) { return NULL; }
+	if (NULL == count) { return NULL; }
 	*count = 0;
-	if (p->protocol_list == NULL || p->protocol_list->count ==0)
+	if (NULL == p || NULL == p->protocol_list || p->protocol_list->count == 0 ||
+		p->protocol_list->count > UINT_MAX)
 	{
 		return NULL;
 	}
 
-	*count  = p->protocol_list->count;
-	Protocol **out = calloc(sizeof(Protocol*), p->protocol_list->count);
-	for (int i=0 ; i<p->protocol_list->count ; i++)
+	size_t protocolCount = p->protocol_list->count;
+	Protocol **out = calloc(protocolCount, sizeof(*out));
+	if (NULL == out) { return NULL; }
+	for (size_t i=0 ; i<protocolCount ; i++)
 	{
 		out[i] = (Protocol*)p->protocol_list->list[i];
 	}
+	*count = (unsigned int)protocolCount;
 	return out;
 }
 
 objc_property_t *protocol_copyPropertyList(Protocol *protocol,
                                            unsigned int *outCount)
 {
+	if (NULL != outCount) { *outCount = 0; }
 	if (NULL == protocol) { return NULL; }
-	if (protocol->isa != ObjC2ProtocolClass)
+	id protocol2 = protocol2Class();
+	if (protocol2 == nil || protocol->isa != protocol2)
 	{
 		return NULL;
 	}
@@ -380,7 +413,8 @@ objc_property_t *protocol_copyPropertyList(Protocol *protocol,
 	{
 		return NULL;
 	}
-	objc_property_t *list = calloc(sizeof(objc_property_t), count);
+	objc_property_t *list = calloc(count, sizeof(*list));
+	if (NULL == list) { return NULL; }
 	unsigned int out = 0;
 	if (properties)
 	{
@@ -397,7 +431,7 @@ objc_property_t *protocol_copyPropertyList(Protocol *protocol,
 			list[out++] = &properties->properties[i];
 		}
 	}
-	*outCount = count;
+	if (NULL != outCount) { *outCount = count; }
 	return list;
 }
 
@@ -406,11 +440,12 @@ objc_property_t protocol_getProperty(Protocol *protocol,
                                      BOOL isRequiredProperty,
                                      BOOL isInstanceProperty)
 {
-	if (NULL == protocol) { return NULL; }
+	if (NULL == protocol || NULL == name) { return NULL; }
 	// Class properties are not supported yet (there is no language syntax for
 	// defining them!)
 	if (!isInstanceProperty) { return NULL; }
-	if (protocol->isa != ObjC2ProtocolClass)
+	id protocol2 = protocol2Class();
+	if (protocol2 == nil || protocol->isa != protocol2)
 	{
 		return NULL;
 	}
@@ -440,6 +475,7 @@ protocol_getMethodDescription(Protocol *p,
                               BOOL isInstanceMethod)
 {
 	struct objc_method_description d = {0,0};
+	if (NULL == p || NULL == aSel) { return d; }
 	struct objc_method_description_list *list =
 		get_method_list(p, isRequiredMethod, isInstanceMethod);
 	if (NULL == list)
@@ -476,8 +512,11 @@ BOOL protocol_isEqual(Protocol *p, Protocol *other)
 	{
 		return NO;
 	}
-	if (p == other ||
-		p->name == other->name ||
+	if (p == other || p->name == other->name)
+	{
+		return YES;
+	}
+	if (NULL != p->name && NULL != other->name &&
 		0 == strcmp(p->name, other->name))
 	{
 		return YES;
@@ -487,39 +526,52 @@ BOOL protocol_isEqual(Protocol *p, Protocol *other)
 
 Protocol*__unsafe_unretained* objc_copyProtocolList(unsigned int *outCount)
 {
-	unsigned int total = known_protocol_table->table_used;
-	Protocol **p = calloc(sizeof(Protocol*), known_protocol_table->table_used);
+	if (NULL != outCount) { *outCount = 0; }
+	if (NULL == known_protocol_table || known_protocol_table->table_used == 0)
+	{
+		return NULL;
+	}
+	if (known_protocol_table->table_used > UINT_MAX) { return NULL; }
+	unsigned int total = (unsigned int)known_protocol_table->table_used;
+	Protocol **p = calloc(total, sizeof(*p));
+	if (NULL == p) { return NULL; }
 
 	struct protocol_table_enumerator *e = NULL;
 	Protocol *next;
-
 	unsigned int count = 0;
 	while ((count < total) && (next = protocol_next(known_protocol_table, &e)))
 	{
 		p[count++] = next;
 	}
-	if (NULL != outCount)
-	{
-		*outCount = total;
-	}
+	if (NULL != outCount) { *outCount = count; }
 	return p;
 }
 
 
 Protocol *objc_allocateProtocol(const char *name)
 {
-	if (objc_getProtocol(name) != NULL) { return NULL; }
-	Protocol *p = (Protocol*)class_createInstance((Class)incompleteProtocolClass(), 0);
+	if (NULL == name || objc_getProtocol(name) != NULL) { return NULL; }
+	id incomplete = incompleteProtocolClass();
+	if (incomplete == nil) { return NULL; }
+	Protocol *p = (Protocol*)class_createInstance((Class)incomplete, 0);
+	if (NULL == p) { return NULL; }
 	p->name = objc2_strdup(name);
+	if (NULL == p->name)
+	{
+		object_dispose((id)p);
+		return NULL;
+	}
 	return p;
 }
 void objc_registerProtocol(Protocol *proto)
 {
-	if (NULL == proto) { return; }
+	if (NULL == proto || NULL == proto->name) { return; }
 	LOCK_RUNTIME_FOR_SCOPE();
 	if (objc_getProtocol(proto->name) != NULL) { return; }
 	if (incompleteProtocolClass() != proto->isa) { return; }
-	proto->isa = ObjC2ProtocolClass;
+	id protocol2 = protocol2Class();
+	if (protocol2 == nil) { return; }
+	proto->isa = protocol2;
 	protocol_table_insert((struct objc_protocol2*)proto);
 }
 void protocol_addMethodDescription(Protocol *aProtocol,
@@ -534,60 +586,45 @@ void protocol_addMethodDescription(Protocol *aProtocol,
 	struct objc_method_description_list **listPtr;
 	if (isInstanceMethod)
 	{
-		if (isRequiredMethod)
-		{
-			listPtr = &proto->instance_methods;
-		}
-		else
-		{
-			listPtr = &proto->optional_instance_methods;
-		}
+		listPtr = isRequiredMethod ? &proto->instance_methods :
+			&proto->optional_instance_methods;
 	}
 	else
 	{
-		if (isRequiredMethod)
-		{
-			listPtr = &proto->class_methods;
-		}
-		else
-		{
-			listPtr = &proto->optional_class_methods;
-		}
+		listPtr = isRequiredMethod ? &proto->class_methods :
+			&proto->optional_class_methods;
 	}
-	if (NULL == *listPtr)
-	{
-		*listPtr = calloc(1, sizeof(struct objc_method_description_list) + sizeof(struct objc_method_description));
-		(*listPtr)->count = 1;
-	}
-	else
-	{
-		(*listPtr)->count++;
-		*listPtr = realloc(*listPtr, sizeof(struct objc_method_description_list) +
-				sizeof(struct objc_method_description) * (*listPtr)->count);
-	}
-	struct objc_method_description_list *list = *listPtr;
-	int index = list->count-1;
-	list->methods[index].name = sel_getName(name);
-	list->methods[index].types= types;
+
+	size_t oldCount = *listPtr ? (size_t)(*listPtr)->count : 0;
+	if (oldCount >= INT32_MAX) { return; }
+	size_t newCount = oldCount + 1;
+	struct objc_method_description_list *list = resize_tail_array(*listPtr,
+		sizeof(*list), sizeof(list->methods[0]), newCount);
+	if (NULL == list) { return; }
+	*listPtr = list;
+	list->count = (int)newCount;
+
+	struct objc_selector *method = &list->methods[newCount - 1];
+	method->name = sel_getName(name);
+	method->types = types;
+	method->hash = 0;
 }
+
 void protocol_addProtocol(Protocol *aProtocol, Protocol *addition)
 {
 	if ((NULL == aProtocol) || (NULL == addition)) { return; }
 	if (incompleteProtocolClass() != aProtocol->isa) { return; }
 	Protocol2 *proto = (Protocol2*)aProtocol;
-	if (NULL == proto->protocol_list)
-	{
-		proto->protocol_list = calloc(1, sizeof(struct objc_property_list) + sizeof(Protocol2*));
-		proto->protocol_list->count = 1;
-	}
-	else
-	{
-		proto->protocol_list->count++;
-		proto->protocol_list = realloc(proto->protocol_list, sizeof(struct objc_property_list) +
-				proto->protocol_list->count * sizeof(Protocol2*));
-		proto->protocol_list->count = 1;
-	}
-	proto->protocol_list->list[proto->protocol_list->count-1] = (Protocol2*)addition;
+	struct objc_protocol_list *list = proto->protocol_list;
+	size_t oldCount = list ? list->count : 0;
+	if (oldCount == SIZE_MAX) { return; }
+	size_t newCount = oldCount + 1;
+	struct objc_protocol_list *resized = resize_tail_array(list,
+		sizeof(*resized), sizeof(resized->list[0]), newCount);
+	if (NULL == resized) { return; }
+	resized->count = newCount;
+	resized->list[newCount - 1] = (Protocol2*)addition;
+	proto->protocol_list = resized;
 }
 void protocol_addProperty(Protocol *aProtocol,
                           const char *name,
@@ -609,19 +646,15 @@ void protocol_addProperty(Protocol *aProtocol,
 	{
 		listPtr = &proto->optional_properties;
 	}
-	if (NULL == *listPtr)
-	{
-		*listPtr = calloc(1, sizeof(struct objc_property_list) + sizeof(struct objc_property));
-		(*listPtr)->count = 1;
-	}
-	else
-	{
-		(*listPtr)->count++;
-		*listPtr = realloc(*listPtr, sizeof(struct objc_property_list) +
-				sizeof(struct objc_property) * (*listPtr)->count);
-	}
-	struct objc_property_list *list = *listPtr;
-	int index = list->count-1;
+	size_t oldCount = *listPtr ? (size_t)(*listPtr)->count : 0;
+	if (oldCount >= INT32_MAX) { return; }
+	size_t newCount = oldCount + 1;
+	struct objc_property_list *list = resize_tail_array(*listPtr,
+		sizeof(*list), sizeof(list->properties[0]), newCount);
+	if (NULL == list) { return; }
+	*listPtr = list;
+	list->count = (int)newCount;
+	int index = (int)newCount - 1;
 	const char *iVarName = NULL;
 	struct objc_property p = propertyFromAttrs(attributes, attributeCount, &iVarName);
 	p.name = name;

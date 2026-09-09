@@ -1,8 +1,20 @@
+/*
+ * SPDX-License-Identifier: MIT AND AGPL-3.0-only
+ * Original libobjc2 portions: MIT; CTRLZer0 modifications: AGPL-3.0-only.
+ * Copyright (C) 2026 CTRLZer0 contributors for CTRLZer0 modifications.
+ * Original upstream copyright and attribution remain under COPYING and the
+ * preserved source / repository history. See LICENSE-CTRLZERO and NOTICE.md.
+ */
+
 #include "objc/runtime.h"
 #include "protocol.h"
 #include "class.h"
 #include <stdio.h>
 #include <string.h>
+
+PRIVATE void objc_protocol2_link_anchor(void)
+{
+}
 
 @implementation Protocol
 // FIXME: This needs removing, but it's included for now because GNUstep's
