@@ -26,7 +26,6 @@ copyright notices and MIT licensing are preserved for inherited code.
 - `tests/` — centralized runtime and compatibility tests.
 - `benchmarks/` — performance and regression benchmarks.
 - `docs/` — maintained documentation and archived upstream material.
-
 Implementation modules are documented in `docs/ARCHITECTURE.md`. Historical
 release announcements and legacy API / installation notes are preserved under
 `docs/archive/upstream/` and are not current project guidance.
@@ -57,6 +56,16 @@ Hot-path tuning must include a benchmark or measurable regression test.
 
 Initial benchmark priorities are selector lookup, class lookup, dispatch-table
 lookup, ARC / weak operations and associated-object access.
+## Automation
+
+Every push and pull request builds and tests the Windows runtime in Debug and
+Release with LLVM 23.1.1. A daily workflow publishes a rolling `nightly`
+prerelease, while pushing a `v*` tag creates a versioned GitHub release after
+the Release test suite passes.
+
+The PowerShell commands under `scripts/ci/` are shared between local builds and
+GitHub Actions so CI failures can be reproduced without workflow-only logic.
+See `docs/CI.md` for the complete automation and release policy.
 
 ## Changelog
 
