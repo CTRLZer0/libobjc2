@@ -1,4 +1,4 @@
-# CTRLZer0 libobjc2
+# libobjc2
 
 [![CI](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml/badge.svg)](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml)
 
