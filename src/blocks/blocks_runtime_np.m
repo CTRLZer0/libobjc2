@@ -48,10 +48,5 @@ OBJC_PUBLIC const char *block_getType_np(const void *b)
  */
 PRIVATE void* block_load_weak(void *block)
 {
-	struct Block_layout *self = block;
-	#ifdef EMBEDDED_BLOCKS_RUNTIME
-	return (self->reserved) > 0 ? block : 0;
-	#else
-	return (self->flags) & BLOCK_REFCOUNT_MASK ? block : 0;
-	#endif
+	return _Block_isDeallocating(block) ? 0 : block;
 }

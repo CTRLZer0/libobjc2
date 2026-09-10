@@ -34,7 +34,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <assert.h>
 
 
 static void *_HeapBlockByRef = (void*)1;
@@ -64,51 +63,61 @@ OBJC_PUBLIC const char * _Block_signature(void *b)
 
 static int increment24(int *ref)
 {
-	int old = *ref;
-	int val = old & BLOCK_REFCOUNT_MASK;
-	if (val == BLOCK_REFCOUNT_MASK)
+	int old = __atomic_load_n(ref, __ATOMIC_RELAXED);
+	for (;;)
 	{
-		return val;
+		const int count = old & BLOCK_REFCOUNT_MASK;
+		if (count == BLOCK_REFCOUNT_MASK) { return count; }
+		const int desired = old + 1;
+		if (__atomic_compare_exchange_n(ref, &old, desired, true,
+				__ATOMIC_RELAXED, __ATOMIC_RELAXED)) { return count + 1; }
 	}
-	assert(val < BLOCK_REFCOUNT_MASK);
-	if (!__sync_bool_compare_and_swap(ref, old, old+1))
-	{
-		return increment24(ref);
-	}
-	return val + 1;
 }
 
 static int decrement24(int *ref)
 {
-	int old = *ref;
-	int val = old & BLOCK_REFCOUNT_MASK;
-	if (val == BLOCK_REFCOUNT_MASK)
+	int old = __atomic_load_n(ref, __ATOMIC_RELAXED);
+	for (;;)
 	{
-		return val;
+		const int count = old & BLOCK_REFCOUNT_MASK;
+		if (count == BLOCK_REFCOUNT_MASK) { return count; }
+		if (count == 0) { abort(); }
+		const int desired = old - 1;
+		if (__atomic_compare_exchange_n(ref, &old, desired, true,
+				__ATOMIC_RELEASE, __ATOMIC_RELAXED))
+		{
+			if ((count - 1) == 0) { __atomic_thread_fence(__ATOMIC_ACQUIRE); }
+			return count - 1;
+		}
 	}
-	assert(val > 0);
-	if (!__sync_bool_compare_and_swap(ref, old, old-1))
-	{
-		return decrement24(ref);
-	}
-	return val - 1;
 }
 
-// This is a really ugly hack that works around a buggy register allocator in
-// GCC.  Compiling nontrivial code using __sync_bool_compare_and_swap() with
-// GCC (4.2.1, at least), causes the register allocator to run out of registers
-// and fall over and die.  We work around this by wrapping this CAS in a
-// function, which means the register allocator can trivially handle it.  Do
-// not remove the noinline attribute - without it, gcc will inline it early on
-// and then crash later.
-#ifndef __clang__
-__attribute__((noinline))
-static int cas(void *ptr, void *old, void *new)
+static void retainBlockRefcount(int *ref)
 {
-	return __sync_bool_compare_and_swap((void**)ptr, old, new);
+	const int old = __atomic_fetch_add(ref, 1, __ATOMIC_RELAXED);
+	if ((old <= 0) || (old == INT_MAX)) { abort(); }
 }
-#define __sync_bool_compare_and_swap cas
-#endif
+
+static bool tryIncrementBlockRefcount(int *ref)
+{
+	int old = __atomic_load_n(ref, __ATOMIC_RELAXED);
+	for (;;)
+	{
+		if ((old <= 0) || (old == INT_MAX)) { return false; }
+		const int desired = old + 1;
+		if (__atomic_compare_exchange_n(ref, &old, desired, true,
+				__ATOMIC_RELAXED, __ATOMIC_RELAXED)) { return true; }
+	}
+}
+
+static bool releaseBlockRefcount(int *ref)
+{
+	const int old = __atomic_fetch_sub(ref, 1, __ATOMIC_RELEASE);
+	if (old <= 0) { abort(); }
+	if (old != 1) { return false; }
+	__atomic_thread_fence(__ATOMIC_ACQUIRE);
+	return true;
+}
 
 /* Certain field types require runtime assistance when being copied to the
  * heap.  The following function is used to copy fields of types: blocks,
@@ -119,72 +128,60 @@ static int cas(void *ptr, void *old, void *new)
  */
 OBJC_PUBLIC void _Block_object_assign(void *destAddr, const void *object, const int flags)
 {
-	//printf("Copying %x to %x with flags %x\n", object, destAddr, flags);
-	// FIXME: Needs to be implemented
-	//if(flags & BLOCK_FIELD_IS_WEAK)
+	if (IS_SET(flags, BLOCK_FIELD_IS_BYREF))
 	{
-	}
-	//else
-	{
-		if (IS_SET(flags, BLOCK_FIELD_IS_BYREF))
+		struct block_byref_obj *src = (struct block_byref_obj *)object;
+		struct block_byref_obj **dst = destAddr;
+		src = __atomic_load_n(&src->forwarding, __ATOMIC_ACQUIRE);
+		if ((__atomic_load_n(&src->flags, __ATOMIC_RELAXED) & BLOCK_REFCOUNT_MASK) == 0)
 		{
-			struct block_byref_obj *src = (struct block_byref_obj *)object;
-			struct block_byref_obj **dst = destAddr;
-			src = src->forwarding;
-
-			if ((src->flags & BLOCK_REFCOUNT_MASK) == 0)
+			struct block_byref_obj *candidate = gc->malloc(src->size);
+			if (candidate == NULL) { abort(); }
+			memcpy(candidate, src, src->size);
+			candidate->isa = _HeapBlockByRef;
+			candidate->flags += 2;
+			if (IS_SET(src->flags, BLOCK_HAS_COPY_DISPOSE))
 			{
-				*dst = gc->malloc(src->size);
-				memcpy(*dst, src, src->size);
-				(*dst)->isa = _HeapBlockByRef;
-				// Refcount must be two; one for the copy and one for the
-				// on-stack version that will point to it.
-				(*dst)->flags += 2;
-				if (IS_SET(src->flags, BLOCK_HAS_COPY_DISPOSE))
-				{
-					src->byref_keep(*dst, src);
-				}
-				(*dst)->forwarding = *dst;
-				// Concurrency.  If we try copying the same byref structure
-				// from two threads simultaneously, we could end up with two
-				// versions on the heap that are unaware of each other.  That
-				// would be bad.  So we first set up the copy, then try to do
-				// an atomic compare-and-exchange to point the old version at
-				// it.  If the forwarding pointer in src has changed, then we
-				// recover - clean up and then return the structure that the
-				// other thread created.
-				if (!__sync_bool_compare_and_swap(&src->forwarding, src, *dst))
-				{
-					if((size_t)src->size >= sizeof(struct block_byref_obj))
-					{
-						src->byref_dispose(*dst);
-					}
-					gc->free(*dst);
-					*dst = src->forwarding;
-				}
+				src->byref_keep(candidate, src);
 			}
-			else
+			candidate->forwarding = candidate;
+			struct block_byref_obj *expected = src;
+			if (!__atomic_compare_exchange_n(&src->forwarding, &expected, candidate, false,
+					__ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
 			{
-				*dst = (struct block_byref_obj*)src;
-				increment24(&(*dst)->flags);
+				if (IS_SET(candidate->flags, BLOCK_HAS_COPY_DISPOSE) && candidate->byref_dispose)
+				{
+					candidate->byref_dispose(candidate);
+				}
+				gc->free(candidate);
+				increment24(&expected->flags);
+				*dst = expected;
 			}
+			else { *dst = candidate; }
 		}
-		else if (IS_SET(flags, BLOCK_FIELD_IS_BLOCK))
+		else
 		{
-			struct Block_layout *src = (struct Block_layout*)object;
-			struct Block_layout **dst = destAddr;
-
-			*dst = Block_copy(src);
-		}
-		else if (IS_SET(flags, BLOCK_FIELD_IS_OBJECT) &&
-		         !IS_SET(flags, BLOCK_BYREF_CALLER))
-		{
-			id src = (id)object;
-			void **dst = destAddr;
 			*dst = src;
-			*dst = objc_retain(src);
+			increment24(&src->flags);
 		}
+		return;
 	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_WEAK))
+	{
+		*(const void **)destAddr = object;
+		return;
+	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_BLOCK))
+	{
+		*(void **)destAddr = _Block_copy(object);
+		return;
+	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_OBJECT) && !IS_SET(flags, BLOCK_BYREF_CALLER))
+	{
+		*(id *)destAddr = objc_retain((id)object);
+		return;
+	}
+	*(const void **)destAddr = object;
 }
 
 /* Similarly a compiler generated dispose helper needs to call back for each
@@ -195,130 +192,105 @@ OBJC_PUBLIC void _Block_object_assign(void *destAddr, const void *object, const 
  */
 OBJC_PUBLIC void _Block_object_dispose(const void *object, const int flags)
 {
-	// FIXME: Needs to be implemented
-	//if(flags & BLOCK_FIELD_IS_WEAK)
+	if (IS_SET(flags, BLOCK_FIELD_IS_BYREF))
 	{
-	}
-	//else
-	{
-		if (IS_SET(flags, BLOCK_FIELD_IS_BYREF))
+		struct block_byref_obj *src = (struct block_byref_obj*)object;
+		src = __atomic_load_n(&src->forwarding, __ATOMIC_ACQUIRE);
+		if (src->isa == _HeapBlockByRef)
 		{
-			struct block_byref_obj *src =
-				(struct block_byref_obj*)object;
-			src = src->forwarding;
-			if (src->isa == _HeapBlockByRef)
+			const int count = __atomic_load_n(&src->flags, __ATOMIC_RELAXED) & BLOCK_REFCOUNT_MASK;
+			if ((count != 0) && (decrement24(&src->flags) == 0))
 			{
-				int refcount = (src->flags & BLOCK_REFCOUNT_MASK) == 0 ? 0 : decrement24(&src->flags);
-				if (refcount == 0)
+				if (IS_SET(src->flags, BLOCK_HAS_COPY_DISPOSE) && src->byref_dispose)
 				{
-					if(IS_SET(src->flags, BLOCK_HAS_COPY_DISPOSE) && (0 != src->byref_dispose))
-					{
-						src->byref_dispose(src);
-					}
-					gc->free(src);
+					src->byref_dispose(src);
 				}
+				gc->free(src);
 			}
 		}
-		else if (IS_SET(flags, BLOCK_FIELD_IS_BLOCK))
-		{
-			struct Block_layout *src = (struct Block_layout*)object;
-			Block_release(src);
-		}
-		else if (IS_SET(flags, BLOCK_FIELD_IS_OBJECT) &&
-		         !IS_SET(flags, BLOCK_BYREF_CALLER))
-		{
-			id src = (id)object;
-			objc_release(src);
-		}
+		return;
+	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_WEAK))
+	{
+		return;
+	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_BLOCK))
+	{
+		_Block_release(object);
+		return;
+	}
+	if (IS_SET(flags, BLOCK_FIELD_IS_OBJECT) && !IS_SET(flags, BLOCK_BYREF_CALLER))
+	{
+		objc_release((id)object);
 	}
 }
 
-
-// Copy a block to the heap if it's still on the stack or increments its retain count.
+// Copy a block to the heap if it is still on the stack, otherwise retain it.
 OBJC_PUBLIC void *_Block_copy(const void *src)
 {
-	if (NULL == src) { return NULL; }
+	if (src == NULL) { return NULL; }
 	struct Block_layout *self = (struct Block_layout*)src;
-	struct Block_layout *ret = self;
-
 	extern void _NSConcreteStackBlock;
 	extern void _NSConcreteMallocBlock;
 
-	// If the block is Global, there's no need to copy it on the heap.
-	if(self->isa == &_NSConcreteStackBlock)
+	if (self->isa == &_NSConcreteStackBlock)
 	{
-		ret = gc->malloc(self->descriptor->size);
+		struct Block_layout *ret = gc->malloc(self->descriptor->size);
+		if (ret == NULL) { return NULL; }
 		memcpy(ret, self, self->descriptor->size);
 		ret->isa = &_NSConcreteMallocBlock;
-		if(self->flags & BLOCK_HAS_COPY_DISPOSE)
+		if (self->flags & BLOCK_HAS_COPY_DISPOSE)
 		{
 			self->descriptor->copy_helper(ret, self);
 		}
-		// We don't need any atomic operations here, because on-stack blocks
-		// can not be aliased across threads (unless you've done something
-		// badly wrong).
 		ret->reserved = 1;
+		return ret;
 	}
-	else if (self->isa == &_NSConcreteMallocBlock)
+	if (self->isa == &_NSConcreteMallocBlock)
 	{
-		// We need an atomic increment for malloc'd blocks, because they may be
-		// shared.
-		__sync_fetch_and_add(&ret->reserved, 1);
+		retainBlockRefcount(&self->reserved);
+		return self;
 	}
-	return ret;
+	return self;
 }
 
-// Release a block and frees the memory when the retain count hits zero.
 OBJC_PUBLIC void _Block_release(const void *src)
 {
-	if (NULL == src) { return; }
+	if (src == NULL) { return; }
 	struct Block_layout *self = (struct Block_layout*)src;
-
 	extern void _NSConcreteStackBlock;
 	extern void _NSConcreteMallocBlock;
 
 	if (&_NSConcreteStackBlock == self->isa)
 	{
 		fprintf(stderr, "Block_release called upon a stack Block: %p, ignored\n", self);
+		return;
 	}
-	else if (&_NSConcreteMallocBlock == self->isa)
+	if ((&_NSConcreteMallocBlock == self->isa) && releaseBlockRefcount(&self->reserved))
 	{
-		if (__sync_sub_and_fetch(&self->reserved, 1) == 0)
+		if (self->flags & BLOCK_HAS_COPY_DISPOSE)
 		{
-			if(self->flags & BLOCK_HAS_COPY_DISPOSE)
-				self->descriptor->dispose_helper(self);
-			objc_delete_weak_refs((id)self);
-			gc->free(self);
+			self->descriptor->dispose_helper(self);
 		}
+		objc_delete_weak_refs((id)self);
+		gc->free(self);
 	}
 }
 
-OBJC_PUBLIC bool _Block_isDeallocating(const void* arg)
+OBJC_PUBLIC bool _Block_isDeallocating(const void *arg)
 {
-	struct Block_layout *block = (struct Block_layout*)arg;
-	int *refCountPtr = &((struct Block_layout*)arg)->reserved;
-	int refCount = __sync_fetch_and_add(refCountPtr, 0);
-	return refCount == 0;
+	if (arg == NULL) { return true; }
+	const struct Block_layout *block = (const struct Block_layout*)arg;
+	extern void _NSConcreteMallocBlock;
+	if (block->isa != &_NSConcreteMallocBlock) { return false; }
+	return __atomic_load_n(&block->reserved, __ATOMIC_ACQUIRE) <= 0;
 }
 
-OBJC_PUBLIC bool _Block_tryRetain(const void* arg)
+OBJC_PUBLIC bool _Block_tryRetain(const void *arg)
 {
-	/* This is used by the weak reference management in ARC. The implementation
-	 * follows the reasoning of `retain_fast()` in arc.mm: We want to abandon the
-	 * retain operation if another thread has started deallocating the object between
-	 * loading the weak pointer and executing the retain operation.
-	 */
+	if (arg == NULL) { return false; }
 	struct Block_layout *block = (struct Block_layout*)arg;
-	int *refCountPtr = &block->reserved;
-	int refCountVal = __sync_fetch_and_add(refCountPtr, 0);
-	int newVal = refCountVal;
-	do {
-		refCountVal = newVal;
-		if (refCountVal <= 0)
-		{
-			return false;
-		}
-		newVal = __sync_val_compare_and_swap(refCountPtr, refCountVal, newVal + 1);
-	} while (newVal != refCountVal);
-	return true;
+	extern void _NSConcreteMallocBlock;
+	if (block->isa != &_NSConcreteMallocBlock) { return true; }
+	return tryIncrementBlockRefcount(&block->reserved);
 }

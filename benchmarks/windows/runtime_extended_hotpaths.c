@@ -11,10 +11,13 @@
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
 #include "objc/mosaic.h"
+#include "objc/blocks_runtime.h"
+#include "objc/blocks_private.h"
 
 typedef id (*message_fn)(id, SEL);
 static volatile uintptr_t benchmark_sink;
 static int association_key;
+extern void _NSConcreteStackBlock;
 
 static id echo_method(id self, SEL selector)
 {
@@ -104,6 +107,15 @@ int main(int argc, char **argv)
     id weak = nil;
     id weak_nil = nil;
     if (objc_initWeak(&weak, object) != object) { return 7; }
+
+    struct Block_descriptor block_descriptor = {
+        0, sizeof(struct Block_layout), NULL, NULL, NULL
+    };
+    struct Block_layout stack_block = {
+        &_NSConcreteStackBlock, 0, 0, NULL, &block_descriptor
+    };
+    struct Block_layout *heap_block = _Block_copy(&stack_block);
+    if (heap_block == NULL) { return 11; }
 
     LARGE_INTEGER frequency, start, end;
     if (!QueryPerformanceFrequency(&frequency) || (frequency.QuadPart <= 0)) { return 8; }
@@ -220,7 +232,30 @@ int main(int argc, char **argv)
     QueryPerformanceCounter(&end);
     report("weak store same", iterations, elapsed_ns(start, end, frequency));
 
+    QueryPerformanceCounter(&start);
+    for (uint64_t i = 0; i < iterations; ++i)
+    {
+        void *copy = _Block_copy(heap_block);
+        sink += (uintptr_t)copy;
+        _Block_release(copy);
+    }
+    QueryPerformanceCounter(&end);
+    report("Block copy + release", iterations, elapsed_ns(start, end, frequency));
+
+    QueryPerformanceCounter(&start);
+    for (uint64_t i = 0; i < iterations; ++i)
+    {
+        if (_Block_tryRetain(heap_block))
+        {
+            ++sink;
+            _Block_release(heap_block);
+        }
+    }
+    QueryPerformanceCounter(&end);
+    report("Block tryRetain + release", iterations, elapsed_ns(start, end, frequency));
+
     benchmark_sink = sink;
+    _Block_release(heap_block);
     objc_destroyWeak(&weak);
     objc_setAssociatedObject(object, &association_key, nil, OBJC_ASSOCIATION_ASSIGN);
     object_dispose(value);

@@ -62,6 +62,12 @@ OBJC_PUBLIC BLOCKS_EXPORT bool _Block_isDeallocating(const void *aBlock);
  */
 OBJC_PUBLIC BLOCKS_EXPORT bool _Block_tryRetain(const void *aBlock);
 
+/** Compiler entry points used by generated block copy / dispose helpers. */
+OBJC_PUBLIC BLOCKS_EXPORT void _Block_object_assign(
+    void *destAddr, const void *object, int flags);
+OBJC_PUBLIC BLOCKS_EXPORT void _Block_object_dispose(
+    const void *object, int flags);
+
 // Helper structure
 struct Block_layout
 {

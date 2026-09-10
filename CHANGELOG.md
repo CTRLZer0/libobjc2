@@ -19,6 +19,7 @@ release announcements remain under `docs/archive/upstream/releases/`.
 
 ### Changed
 
+- Embedded Blocks runtime now uses modern atomic refcounting and transactional concurrent `__block` forwarding while preserving the existing Blocks ABI.
 - Legacy hopscotch hash-table allocation and resize paths now use overflow-safe sizing and integer load-factor checks.
 - Class lookup now uses a generation-invalidated direct-mapped TLS cache that preserves content validation while accelerating common Mosaic working sets.
 - Core runtime development now follows current GNUstep instead of the historical
