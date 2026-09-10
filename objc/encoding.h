@@ -34,32 +34,8 @@ size_t objc_aligned_size(const char *type);
 OBJC_PUBLIC
 size_t objc_promoted_size(const char *type);
 
-OBJC_PUBLIC
-void method_getReturnType(Method method, char *dst, size_t dst_len);
-
-OBJC_PUBLIC
-const char *method_getTypeEncoding(Method method);
-
-OBJC_PUBLIC
-SEL method_getTypedSelector_np(Method method) OBJC_NONPORTABLE;
-
-OBJC_PUBLIC
-void method_getArgumentType(Method method,
-                            unsigned int index,
-                            char *dst,
-                            size_t dst_len);
-
-OBJC_PUBLIC
-unsigned method_getNumberOfArguments(Method method);
-
-OBJC_PUBLIC
-unsigned method_get_number_of_arguments(struct objc_method *method);
-
-OBJC_PUBLIC
-char * method_copyArgumentType(Method method, unsigned int index);
-
-OBJC_PUBLIC
-char * method_copyReturnType(Method method);
+// Method metadata APIs historically exposed by this header.
+#include "runtime-method.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Deprecated functions - do not use functions below this line in new code.

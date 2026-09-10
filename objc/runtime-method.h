@@ -61,12 +61,20 @@ IMP method_getImplementation(Method method);
 OBJC_PUBLIC
 SEL method_getName(Method method);
 
+/** Returns the typed selector stored by the GNUstep runtime. */
+OBJC_PUBLIC
+SEL method_getTypedSelector_np(Method method) OBJC_NONPORTABLE;
+
 /**
  * Returns the number of arguments (including self and _cmd) that this method
  * expects.
  */
 OBJC_PUBLIC
 unsigned method_getNumberOfArguments(Method method);
+
+/** Historical spelling retained for source and binary compatibility. */
+OBJC_PUBLIC
+unsigned method_get_number_of_arguments(struct objc_method *method);
 
 /**
  * Copies the Objective-C type encoding of a method's return value into a
