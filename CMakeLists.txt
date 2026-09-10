@@ -108,6 +108,7 @@ set(libobjc_HDRS
 	objc/encoding.h
 	objc/hooks.h
 	objc/message.h
+	objc/mosaic.h
 	objc/objc-api.h
 	objc/objc-arc.h
 	objc/objc-auto.h
@@ -152,7 +153,9 @@ set(libobjc_RUNTIME_HDRS
 	objc/runtime/encoding.h)
 
 set(libobjc_COMPAT_HDRS
-	objc/compat/runtime-deprecated.h)
+	objc/compat/runtime-deprecated.h
+	objc/compat/Object.h
+	objc/compat/Protocol.h)
 
 set(libobjc_MEMORY_HDRS
 	objc/memory/arc.h
@@ -172,6 +175,15 @@ set(libobjc_DISPATCH_HDRS
 set(libobjc_BLOCKS_HDRS
 	objc/blocks/runtime.h
 	objc/blocks/private.h)
+
+set(libobjc_ENCODING_HDRS
+	objc/encoding/api.h)
+
+set(libobjc_EXCEPTION_HDRS
+	objc/exceptions/runtime.h)
+
+set(libobjc_EXTENSION_HDRS
+	objc/extensions/mosaic.h)
 
 set(libobjc_CXX_SRCS
 	src/dispatch/selector_table.cc
@@ -511,6 +523,12 @@ install(FILES ${libobjc_SUPPORT_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/support")
 install(FILES ${libobjc_DISPATCH_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/dispatch")
+install(FILES ${libobjc_ENCODING_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/encoding")
+install(FILES ${libobjc_EXCEPTION_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/exceptions")
+install(FILES ${libobjc_EXTENSION_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/extensions")
 
 if (EMBEDDED_BLOCKS_RUNTIME)
 	install(FILES ${libobjc_BLOCKS_HDRS}

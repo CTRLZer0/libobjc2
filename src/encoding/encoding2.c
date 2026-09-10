@@ -4,7 +4,7 @@
 #include <ctype.h>
 
 #include "objc/runtime.h"
-#include "objc/encoding.h"
+#include "objc/encoding/api.h"
 #include "method.h"
 #include "visibility.h"
 

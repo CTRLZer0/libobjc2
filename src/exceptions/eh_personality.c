@@ -4,7 +4,7 @@
 #include "dwarf_eh.h"
 #include "objc/runtime.h"
 #include "objc/support/hooks.h"
-#include "objc/objc-exception.h"
+#include "objc/exceptions/runtime.h"
 #include "class.h"
 #include "objcxx_eh.h"
 

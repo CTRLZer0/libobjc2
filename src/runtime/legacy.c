@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "objc/runtime.h"
-#include "objc/encoding.h"
+#include "objc/encoding/api.h"
 #include "legacy.h"
 #include "properties.h"
 #include "protocol.h"

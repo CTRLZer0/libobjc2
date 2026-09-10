@@ -15,6 +15,7 @@ set(headers
 	runtime/compiler.h runtime/encoding.h runtime/class.h runtime/object.h
 	runtime/ivar.h runtime/method.h compat/runtime-deprecated.h
 	dispatch/message.h dispatch/slot.h dispatch/toydispatch.h
+	encoding/api.h exceptions/runtime.h extensions/mosaic.h
 	blocks/runtime.h blocks/private.h
 	memory/arc.h memory/auto.h
 	support/availability.h support/capabilities.h support/developer.h
@@ -56,4 +57,29 @@ foreach(header IN LISTS headers)
 	endforeach()
 endforeach()
 
-message(STATUS "public header contract passed in C and C++")
+set(objc_headers compat/Object.h compat/Protocol.h Object.h Protocol.h)
+foreach(header IN LISTS objc_headers)
+	string(MAKE_C_IDENTIFIER "${header}" ident)
+	foreach(language IN ITEMS objc objcxx)
+		if(language STREQUAL "objc")
+			set(compiler "${CLANG}")
+			set(mode objective-c)
+			set(extension m)
+		else()
+			set(compiler "${CLANGXX}")
+			set(mode objective-c++)
+			set(extension mm)
+		endif()
+		set(source "${OUT_DIR}/${ident}.${extension}")
+		file(WRITE "${source}" "#include <objc/${header}>\n#include <objc/${header}>\n")
+		execute_process(COMMAND "${compiler}" -fsyntax-only -x "${mode}" -Wall -Wextra -Werror
+			-Wno-objc-root-class -fobjc-runtime=gnustep-2.0 -D__OBJC_RUNTIME_STATIC__=1
+			"-I${ROOT}" "-I${RUNTIME_ROOT}" "-I${RUNTIME_INCLUDE}" "${source}"
+			RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+		if(NOT result EQUAL 0)
+			message(FATAL_ERROR "${header} failed as ${language}:\n${output}${error}")
+		endif()
+	endforeach()
+endforeach()
+
+message(STATUS "public header contract passed in C, C++, Objective-C and Objective-C++")

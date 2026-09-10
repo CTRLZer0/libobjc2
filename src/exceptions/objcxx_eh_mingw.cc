@@ -7,7 +7,7 @@
 #include "objcxx_eh.h"
 #include "objc/runtime.h"
 #include "objc/memory/arc.h"
-#include "objc/objc-exception.h"
+#include "objc/exceptions/runtime.h"
 #include "objc/support/hooks.h"
 
 namespace __cxxabiv1

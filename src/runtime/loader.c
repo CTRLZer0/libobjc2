@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "objc/runtime.h"
-#include "objc/mosaic.h"
+#include "objc/extensions/mosaic.h"
 #include "objc/memory/auto.h"
 #include "objc/memory/arc.h"
 #include "lock.h"

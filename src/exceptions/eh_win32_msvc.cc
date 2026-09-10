@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "objc/runtime.h"
-#include "objc/objc-exception.h"
+#include "objc/exceptions/runtime.h"
 #include "visibility.h"
 
 #include <windows.h>
