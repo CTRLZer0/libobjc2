@@ -26,7 +26,7 @@
 
 
 #ifdef EMBEDDED_BLOCKS_RUNTIME
-#import "objc/blocks_runtime.h"
+#import "objc/blocks/runtime.h"
 #include "blocks_runtime.h"
 #else
 #import <Block.h>

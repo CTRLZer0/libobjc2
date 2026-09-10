@@ -17,7 +17,7 @@
 #endif
 #include "crt_compat.h"
 #include "objc/runtime.h"
-#include "objc/blocks_runtime.h"
+#include "objc/blocks/runtime.h"
 #include "blocks_runtime.h"
 #include "lock.h"
 #include "visibility.h"

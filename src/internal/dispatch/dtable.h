@@ -1,7 +1,7 @@
 #include "lock.h"
 #include "class.h"
 #include "sarray2.h"
-#include "objc/slot.h"
+#include "objc/dispatch/slot.h"
 #include "visibility.h"
 #include <stdint.h>
 #include <stdio.h>

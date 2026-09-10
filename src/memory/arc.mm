@@ -15,8 +15,8 @@
 #import "lock.h"
 #import "objc/runtime.h"
 #ifdef EMBEDDED_BLOCKS_RUNTIME
-#import "objc/blocks_private.h"
-#import "objc/blocks_runtime.h"
+#import "objc/blocks/private.h"
+#import "objc/blocks/runtime.h"
 #else
 #include <Block.h>
 #include <Block_private.h>
@@ -27,7 +27,7 @@
 #import "visibility.h"
 #import "objc/support/hooks.h"
 #import "objc/memory/arc.h"
-#include "objc/message.h"
+#include "objc/dispatch/message.h"
 
 /**
  * Helper to send a manual message for retain / release.

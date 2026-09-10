@@ -165,6 +165,14 @@ set(libobjc_SUPPORT_HDRS
 	objc/support/hooks.h
 	objc/support/visibility.h)
 
+set(libobjc_DISPATCH_HDRS
+	objc/dispatch/message.h
+	objc/dispatch/slot.h)
+
+set(libobjc_BLOCKS_HDRS
+	objc/blocks/runtime.h
+	objc/blocks/private.h)
+
 set(libobjc_CXX_SRCS
 	src/dispatch/selector_table.cc
 	)
@@ -501,8 +509,12 @@ install(FILES ${libobjc_MEMORY_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/memory")
 install(FILES ${libobjc_SUPPORT_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/support")
+install(FILES ${libobjc_DISPATCH_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/dispatch")
 
 if (EMBEDDED_BLOCKS_RUNTIME)
+	install(FILES ${libobjc_BLOCKS_HDRS}
+		DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/blocks")
 	install(FILES ${libBlocksRuntime_COMPATIBILITY_HDRS}
 		DESTINATION "${HEADER_INSTALL_PATH}")
 endif ()

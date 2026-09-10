@@ -23,8 +23,8 @@
  *  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  *  OTHER DEALINGS IN THE SOFTWARE.
  */
-#import "objc/blocks_runtime.h"
-#include "objc/blocks_private.h"
+#import "objc/blocks/runtime.h"
+#include "objc/blocks/private.h"
 #import "objc/runtime.h"
 #import "objc/memory/arc.h"
 #include "blocks_runtime.h"

@@ -65,7 +65,7 @@ enum
  * Include the block_descriptor_copydispose and block_literal definitions that
  * are also made public under different names for use in libdispatch.
  */
-#include "objc/blocks_private.h"
+#include "objc/blocks/private.h"
 
 /**
  * Block descriptor that does not contain copy and dispose helper functions.

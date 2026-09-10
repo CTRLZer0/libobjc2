@@ -2,7 +2,7 @@
 #include "class.h"
 #include "loader.h"
 #include "lock.h"
-#include "objc/blocks_runtime.h"
+#include "objc/blocks/runtime.h"
 #include "dtable.h"
 #include <assert.h>
 

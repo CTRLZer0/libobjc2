@@ -6,7 +6,7 @@
 #define __LIBOBJC_RUNTIME_DISPATCH_H_INCLUDED__
 
 #include "types.h"
-#include <objc/slot.h>
+#include <objc/dispatch/slot.h>
 
 #ifdef __cplusplus
 extern "C" {
