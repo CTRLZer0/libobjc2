@@ -5,6 +5,8 @@
 #ifndef __OBJC_SLOT_H_INCLUDED__
 #define __OBJC_SLOT_H_INCLUDED__
 
+#include "runtime-types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

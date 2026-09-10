@@ -2,6 +2,9 @@
 #pragma clang system_header
 #endif
 
+#ifndef __OBJC_AVAILABILITY_H_INCLUDED__
+#define __OBJC_AVAILABILITY_H_INCLUDED__
+
 #include "objc-visibility.h"
 
 #ifdef STRICT_MACOS_X
@@ -23,3 +26,4 @@
 #	define OBJC_GNUSTEP_RUNTIME_UNSUPPORTED(x)
 #endif
 
+#endif // __OBJC_AVAILABILITY_H_INCLUDED__

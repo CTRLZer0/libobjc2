@@ -2,6 +2,15 @@
 #pragma clang system_header
 #endif
 
+#ifndef __OBJC_AUTO_INCLUDED__
+#define __OBJC_AUTO_INCLUDED__
+
+#include "runtime-types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * objc-auto.h - This file provides the interface for Objective-C garbage
  * collection
@@ -257,3 +266,9 @@ void* objc_gc_collectable_address(void* ptr);
  * the function specified in the second argument.
  */
 BOOL objc_register_stack_class(Class cls, IMP copyFunction);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // __OBJC_AUTO_INCLUDED__

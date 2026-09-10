@@ -1,3 +1,6 @@
+#ifndef __OBJC_VISIBILITY_H_INCLUDED__
+#define __OBJC_VISIBILITY_H_INCLUDED__
+
 #if defined _WIN32 || defined __CYGWIN__
 #	if defined(__OBJC_RUNTIME_STATIC__)
 #		define OBJC_PUBLIC
@@ -9,3 +12,5 @@
 #else
 #	define OBJC_PUBLIC
 #endif
+
+#endif // __OBJC_VISIBILITY_H_INCLUDED__

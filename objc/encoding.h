@@ -6,6 +6,8 @@
 #ifndef __LIBOBJC_ENCODING_H_INCLUDED__
 #define __LIBOBJC_ENCODING_H_INCLUDED__
 
+#include "runtime-types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

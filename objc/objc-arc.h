@@ -6,6 +6,8 @@
 #ifndef __OBJC_ARC_INCLUDED__
 #define __OBJC_ARC_INCLUDED__
 
+#include "runtime-types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

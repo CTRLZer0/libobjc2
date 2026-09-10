@@ -3,6 +3,11 @@
 #endif
 #include "objc-visibility.h"
 
+#ifndef __OBJC_HOOKS_H_INCLUDED__
+#define __OBJC_HOOKS_H_INCLUDED__
+
+#include "runtime-types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -119,3 +124,5 @@ OBJC_PUBLIC int objc_registerTracingHook(SEL, objc_tracing_hook);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // __OBJC_HOOKS_H_INCLUDED__

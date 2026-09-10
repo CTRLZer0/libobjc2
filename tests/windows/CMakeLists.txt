@@ -19,6 +19,16 @@ function(add_mosaic_runtime_test name source)
 	add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+add_test(
+	NAME mosaic_objc_public_headers_contract
+	COMMAND "${CMAKE_COMMAND}"
+		"-DROOT=${MOSAIC_LIBOBJC2_ROOT}"
+		"-DRUNTIME_INCLUDE=${_runtime_dir}/objc"
+		"-DCLANG=${MOSAIC_LIBOBJC2_CLANG}"
+		"-DCLANGXX=${MOSAIC_LIBOBJC2_CLANGXX}"
+		"-DOUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/header-contract"
+		-P "${CMAKE_CURRENT_LIST_DIR}/header_compile_contract.cmake")
+
 add_mosaic_runtime_test(
 	mosaic_objc_runtime_contract
 	runtime_contract.c)

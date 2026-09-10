@@ -117,6 +117,7 @@ set(libobjc_HDRS
 	objc/objc-visibility.h
 	objc/objc.h
 	objc/runtime-deprecated.h
+	objc/runtime-types.h
 	objc/runtime.h
 	objc/slot.h
 	${PROJECT_BINARY_DIR}/objc/objc-config.h)

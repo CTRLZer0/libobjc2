@@ -2,6 +2,15 @@
 #pragma clang system_header
 #endif
 
+#ifndef __OBJC_DEVELOPER_H_INCLUDED__
+#define __OBJC_DEVELOPER_H_INCLUDED__
+
+#include "runtime-types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum objc_developer_mode_np
 {
 	/** User mode - the default. */
@@ -22,4 +31,10 @@ enum objc_developer_mode_np
  * the future.  The behaviour of the existing modes will be maintained if this
  * is the case.
  */
-void objc_setDeveloperMode_np(enum objc_developer_mode_np);
+OBJC_PUBLIC void objc_setDeveloperMode_np(enum objc_developer_mode_np);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // __OBJC_DEVELOPER_H_INCLUDED__

@@ -6,6 +6,12 @@
 #ifndef _OBJC_MESSAGE_H_
 #define _OBJC_MESSAGE_H_
 
+#include "runtime-types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if defined(__x86_64) || defined(__i386) || defined(__arm__) ||                \
     defined(__mips_n64) || defined(__mips_n32) ||                              \
     defined(__ARM_ARCH_ISA_A64) ||                                             \
@@ -100,6 +106,10 @@ void objc_msgSend_stret2(id self, SEL _cmd, ...);
 OBJC_PUBLIC
 long double objc_msgSend_fpret(id self, SEL _cmd, ...);
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif //_OBJC_MESSAGE_H_
