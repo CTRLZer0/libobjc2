@@ -71,7 +71,7 @@ PRIVATE void objc_try_load_category(struct objc_category *cat)
 {
 	if (!try_load_category(cat))
 	{
-		set_buffered_object_at_index(cat, buffered_objects++);
+		if (!append_buffered_object(cat)) { abort(); }
 	}
 }
 

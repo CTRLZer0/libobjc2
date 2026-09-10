@@ -44,7 +44,7 @@ PRIVATE void objc_init_statics(struct objc_static_instance_list *statics)
 {
 	if (!try_init_statics(statics))
 	{
-		set_buffered_object_at_index(statics, buffered_objects++);
+		if (!append_buffered_object(statics)) { abort(); }
 	}
 }
 

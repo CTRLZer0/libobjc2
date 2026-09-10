@@ -66,6 +66,12 @@ target_include_directories(mosaic_objc_hash_table_contract PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/exceptions")
 
 add_mosaic_runtime_test(
+	mosaic_objc_buffer_contract
+	buffer_contract.c)
+target_include_directories(mosaic_objc_buffer_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/support")
+
+add_mosaic_runtime_test(
 	mosaic_objc_blocks_contract
 	blocks_contract.c)
 target_include_directories(mosaic_objc_blocks_contract PRIVATE

@@ -203,7 +203,7 @@ PRIVATE void objc_init_protocols(struct objc_protocol_list *protocols)
 	LOCK_FOR_SCOPE(&protocol_table_lock);
 	if (!init_protocols(protocols))
 	{
-		set_buffered_object_at_index(protocols, buffered_objects++);
+		if (!append_buffered_object(protocols)) { abort(); }
 		return;
 	}
 	if (buffered_objects == 0) { return; }
