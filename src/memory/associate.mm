@@ -20,19 +20,31 @@
 struct reference
 {
 	/**
-	 * Even while stable, odd while a writer is publishing a new tuple.
+	 * Generation, writer bit, and association policy in one atomic word.
 	 */
-	uintptr_t generation;
+	uintptr_t state;
 	/**
-	 * Key, value, and policy are accessed atomically so lock-free readers never
-	 * race a writer. The generation field makes the three values one snapshot.
+	 * Key and value are atomic payload fields protected by the state seqlock.
 	 */
 	const void *key;
 	void *object;
-	uintptr_t policy;
 };
 
 #define REFERENCE_LIST_SIZE 10
+
+enum
+{
+	REFERENCE_POLICY_MASK = 0x3ff,
+	REFERENCE_WRITING = 0x400,
+	REFERENCE_GENERATION_INCREMENT = 0x800,
+};
+static_assert((OBJC_ASSOCIATION_COPY & ~REFERENCE_POLICY_MASK) == 0,
+	"association policy does not fit in reference state");
+
+static inline uintptr_t referencePolicy(uintptr_t state)
+{
+	return state & REFERENCE_POLICY_MASK;
+}
 
 /**
  * Linked list of references associated with an object.  We assume that there
@@ -89,13 +101,14 @@ static struct reference* findReferenceLocked(struct reference_list *list,
 static void publishReference(struct reference *r, const void *key,
                              void *object, uintptr_t policy)
 {
-	uintptr_t generation =
-		__atomic_fetch_add(&r->generation, 1, __ATOMIC_ACQ_REL);
-	assert((generation & 1) == 0);
+	uintptr_t state =
+		__atomic_fetch_or(&r->state, REFERENCE_WRITING, __ATOMIC_ACQ_REL);
+	assert((state & REFERENCE_WRITING) == 0);
+	uintptr_t generation = state & ~(REFERENCE_POLICY_MASK | REFERENCE_WRITING);
 	__atomic_store_n(&r->object, object, __ATOMIC_RELAXED);
-	__atomic_store_n(&r->policy, policy, __ATOMIC_RELAXED);
 	__atomic_store_n(&r->key, key, __ATOMIC_RELAXED);
-	__atomic_fetch_add(&r->generation, 1, __ATOMIC_RELEASE);
+	generation += REFERENCE_GENERATION_INCREMENT;
+	__atomic_store_n(&r->state, generation | policy, __ATOMIC_RELEASE);
 }
 
 static BOOL snapshotReference(struct reference *r, const void *key,
@@ -103,31 +116,33 @@ static BOOL snapshotReference(struct reference *r, const void *key,
 {
 	for (;;)
 	{
-		uintptr_t before = __atomic_load_n(&r->generation, __ATOMIC_ACQUIRE);
-		if (before & 1) { continue; }
+		uintptr_t before = __atomic_load_n(&r->state, __ATOMIC_ACQUIRE);
+		if (before & REFERENCE_WRITING) { continue; }
 		const void *observedKey = __atomic_load_n(&r->key, __ATOMIC_RELAXED);
-		void *observedObject = __atomic_load_n(&r->object, __ATOMIC_RELAXED);
-		uintptr_t observedPolicy = __atomic_load_n(&r->policy, __ATOMIC_RELAXED);
-		uintptr_t after = __atomic_load_n(&r->generation, __ATOMIC_ACQUIRE);
-		if (before != after) { continue; }
 		if (observedKey != key) { return NO; }
+		void *observedObject = __atomic_load_n(&r->object, __ATOMIC_ACQUIRE);
+		uintptr_t after = __atomic_load_n(&r->state, __ATOMIC_ACQUIRE);
+		if (before != after) { continue; }
 		*object = observedObject;
-		*policy = observedPolicy;
+		*policy = referencePolicy(before);
 		return YES;
 	}
 }
 
 static BOOL findReferenceSnapshot(struct reference_list *list, const void *key,
-                                  void **object, uintptr_t *policy)
+                                  int firstIndex, void **object,
+                                  uintptr_t *policy)
 {
+	int start = firstIndex;
 	while (list != NULL)
 	{
-		for (int i = 0; i < REFERENCE_LIST_SIZE; ++i)
+		for (int i = start; i < REFERENCE_LIST_SIZE; ++i)
 		{
 			struct reference *r = &list->list[i];
 			if (loadReferenceKey(r) != key) { continue; }
 			if (snapshotReference(r, key, object, policy)) { return YES; }
 		}
+		start = 0;
 		list = loadNextReferenceList(list);
 	}
 	return NO;
@@ -142,7 +157,8 @@ static void cleanupReferenceList(struct reference_list *list)
 			struct reference *r = &node->list[i];
 			if (__atomic_load_n(&r->key, __ATOMIC_RELAXED) == NULL) { continue; }
 			void *object = __atomic_load_n(&r->object, __ATOMIC_RELAXED);
-			uintptr_t policy = __atomic_load_n(&r->policy, __ATOMIC_RELAXED);
+			uintptr_t policy = referencePolicy(
+				__atomic_load_n(&r->state, __ATOMIC_RELAXED));
 			publishReference(r, NULL, NULL, OBJC_ASSOCIATION_ASSIGN);
 			if ((object != NULL) && (policy != OBJC_ASSOCIATION_ASSIGN))
 			{
@@ -219,7 +235,8 @@ static void setReference(struct reference_list *list,
 		if (r != NULL)
 		{
 			oldObject = __atomic_load_n(&r->object, __ATOMIC_RELAXED);
-			oldPolicy = __atomic_load_n(&r->policy, __ATOMIC_RELAXED);
+			oldPolicy = referencePolicy(
+				__atomic_load_n(&r->state, __ATOMIC_RELAXED));
 			publishReference(r,
 				obj == NULL ? NULL : key,
 				obj,
@@ -403,7 +420,8 @@ static id getReferenceRetained(struct reference_list *list, const void *key)
 	if (r != NULL)
 	{
 		value = (id)__atomic_load_n(&r->object, __ATOMIC_RELAXED);
-		uintptr_t policy = __atomic_load_n(&r->policy, __ATOMIC_RELAXED);
+		uintptr_t policy = referencePolicy(
+			__atomic_load_n(&r->state, __ATOMIC_RELAXED));
 		if ((value != nil) && (policy & OBJC_ASSOCIATION_RETAIN_NONATOMIC))
 		{
 			objc_retainAutorelease(value);
@@ -413,12 +431,16 @@ static id getReferenceRetained(struct reference_list *list, const void *key)
 	return value;
 }
 
-static id getReference(struct reference_list *list, const void *key)
+static id getReferenceFrom(struct reference_list *list, const void *key,
+                           int firstIndex)
 {
 	if (list == NULL) { return nil; }
 	void *object = NULL;
 	uintptr_t policy = OBJC_ASSOCIATION_ASSIGN;
-	if (!findReferenceSnapshot(list, key, &object, &policy)) { return nil; }
+	if (!findReferenceSnapshot(list, key, firstIndex, &object, &policy))
+	{
+		return nil;
+	}
 	if ((object != NULL) && (policy & OBJC_ASSOCIATION_RETAIN_NONATOMIC))
 	{
 		return getReferenceRetained(list, key);
@@ -431,7 +453,18 @@ id objc_getAssociatedObject(id object, const void *key)
 	if (isSmallObject(object)) { return nil; }
 	struct reference_list *list = referenceListForObject(object, NO);
 	if (NULL == list) { return nil; }
-	id value = getReference(list, key);
+	void *firstObject = NULL;
+	uintptr_t firstPolicy = OBJC_ASSOCIATION_ASSIGN;
+	if (snapshotReference(&list->list[0], key, &firstObject, &firstPolicy))
+	{
+		if ((firstObject != NULL) &&
+		    (firstPolicy & OBJC_ASSOCIATION_RETAIN_NONATOMIC))
+		{
+			return getReferenceRetained(list, key);
+		}
+		return (id)firstObject;
+	}
+	id value = getReferenceFrom(list, key, 1);
 	if (value != nil) { return value; }
 	if (class_isMetaClass(object->isa))
 	{
@@ -451,7 +484,7 @@ id objc_getAssociatedObject(id object, const void *key)
 			if (list != next_list)
 			{
 				list = next_list;
-				id inherited = getReference(list, key);
+				id inherited = getReferenceFrom(list, key, 0);
 				if (inherited != nil) { return inherited; }
 			}
 			cls = class_getSuperclass(cls);
