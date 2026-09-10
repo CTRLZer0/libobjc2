@@ -170,6 +170,12 @@ BOOL class_addIvar(Class cls, const char *name, size_t size, uint8_t alignment,
 	return YES;
 }
 
+static void update_cxx_method_cache(Class cls, const char *name, IMP imp)
+{
+	if (strcmp(name, ".cxx_construct") == 0) { cls->cxx_construct = imp; }
+	else if (strcmp(name, ".cxx_destruct") == 0) { cls->cxx_destruct = imp; }
+}
+
 BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 {
 	CHECK_ARG(cls);
@@ -211,6 +217,7 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 	m0->types = typeCopy;
 	m0->imp = imp;
 	cls->methods = methods;
+	update_cxx_method_cache(cls, methodName, imp);
 
 	if (classHasDtable(cls))
 	{
@@ -526,6 +533,7 @@ IMP class_replaceMethod(Class cls, SEL name, IMP imp, const char *types)
 	}
 	IMP old = (IMP)method->imp;
 	method->imp = imp;
+	update_cxx_method_cache(cls, sel_getName(sel), imp);
 	return old;
 }
 

@@ -41,6 +41,9 @@ add_mosaic_runtime_test(
 	mosaic_objc_memory_contract
 	memory_contract.c)
 add_mosaic_runtime_test(
+	mosaic_objc_association_contract
+	association_contract.c)
+add_mosaic_runtime_test(
 	mosaic_objc_protocol_contract
 	protocol_contract.c)
 
