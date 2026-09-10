@@ -334,7 +334,7 @@ using SelectorTable = tsl::robin_set<objc_selector*, SelectorHash, SelectorEqual
  */
 static SelectorTable *selector_table;
 
-static int selector_name_copies;
+static size_t selector_name_copies;
 }
 
 extern "C" PRIVATE void log_selector_memory_usage(void)
@@ -393,23 +393,24 @@ static inline void add_selector_to_table(SEL aSel)
 /**
  * Really registers a selector.  Must be called with the selector table locked.
  */
-static inline void register_selector_locked(SEL aSel)
+static inline BOOL register_selector_locked(SEL aSel)
 {
 	if (aSel->name == nullptr)
 	{
-		return;
+		return NO;
 	}
 	if (nullptr == aSel->types)
 	{
 		add_selector_to_table(aSel);
 		objc_resize_dtables(selector_list->size());
-		return;
+		return YES;
 	}
 	SEL untyped = selector_lookup(aSel->name, 0);
 	// If this has a type encoding, store the untyped version too.
 	if (untyped == nullptr)
 	{
 		untyped = SelectorAllocator::allocate();
+		if (untyped == nullptr) { return NO; }
 		untyped->name = aSel->name;
 		untyped->types = 0;
 		add_selector_to_table(untyped);
@@ -428,6 +429,7 @@ static inline void register_selector_locked(SEL aSel)
 		TDD((*selector_list)[untyped->index].add_types(aSel->types));
 	}
 	objc_resize_dtables(selector_list->size());
+	return YES;
 }
 /**
  * Registers a selector.  This assumes that the argument is never deallocated.
@@ -458,8 +460,7 @@ extern "C" PRIVATE SEL objc_register_selector(SEL aSel)
 	// and the matching dtable resize atomic with respect to other resizes.
 	LOCK_RUNTIME_FOR_SCOPE();
 	LockGuard g{selector_table_lock};
-	register_selector_locked(aSel);
-	return aSel;
+	return register_selector_locked(aSel) ? aSel : nullptr;
 }
 
 /**
@@ -467,14 +468,11 @@ extern "C" PRIVATE SEL objc_register_selector(SEL aSel)
  */
 SEL objc_register_selector_copy(UnregisteredSelector &aSel, BOOL copyArgs)
 {
-	// If an identical selector is already registered, return it.
 	SEL copy = selector_lookup(aSel.name, aSel.types);
 	if ((nullptr != copy) && selector_identical(aSel, copy))
 	{
 		return copy;
 	}
-	// Runtime lock before the selector table lock, for the duration of the
-	// registration; see objc_register_selector above and gnustep/libobjc2#391.
 	LOCK_RUNTIME_FOR_SCOPE();
 	LockGuard g{selector_table_lock};
 	copy = selector_lookup(aSel.name, aSel.types);
@@ -483,13 +481,15 @@ SEL objc_register_selector_copy(UnregisteredSelector &aSel, BOOL copyArgs)
 		return copy;
 	}
 	assert(!(aSel.types && (strstr(aSel.types, "@\"") != nullptr)));
-	// Create a copy of this selector.
 	copy = SelectorAllocator::allocate();
+	if (copy == nullptr) { return nullptr; }
 	copy->name = aSel.name;
-	copy->types = (nullptr == aSel.types) ? nullptr : aSel.types;
+	copy->types = aSel.types;
+	BOOL ownsName = NO;
+	BOOL ownsTypes = NO;
 	if (copyArgs)
 	{
-		SEL untyped = selector_lookup(aSel.name, 0);
+		SEL untyped = selector_lookup(aSel.name, nullptr);
 		if (untyped != nullptr)
 		{
 			copy->name = sel_getName(untyped);
@@ -497,18 +497,40 @@ SEL objc_register_selector_copy(UnregisteredSelector &aSel, BOOL copyArgs)
 		else
 		{
 			copy->name = objc2_strdup(aSel.name);
-			assert(copy->name);
+			if (copy->name == nullptr) { return nullptr; }
+			ownsName = YES;
 			selector_name_copies += strlen(copy->name);
 		}
 		if (copy->types != nullptr)
 		{
 			copy->types = objc2_strdup(copy->types);
-			assert(copy->types);
+			if (copy->types == nullptr)
+			{
+				if (ownsName)
+				{
+					selector_name_copies -= strlen(copy->name);
+					free((void*)copy->name);
+				}
+				return nullptr;
+			}
+			ownsTypes = YES;
 			selector_name_copies += strlen(copy->types);
 		}
 	}
-	// Try to register the copy as the authoritative version
-	register_selector_locked(copy);
+	if (!register_selector_locked(copy))
+	{
+		if (ownsTypes)
+		{
+			selector_name_copies -= strlen(copy->types);
+			free((void*)copy->types);
+		}
+		if (ownsName)
+		{
+			selector_name_copies -= strlen(copy->name);
+			free((void*)copy->name);
+		}
+		return nullptr;
+	}
 	return copy;
 }
 

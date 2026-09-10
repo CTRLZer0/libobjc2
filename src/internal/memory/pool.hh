@@ -26,17 +26,19 @@ inline void *allocate_pages(size_t size)
 template<typename T>
 class PoolAllocate
 {
-	static constexpr size_t PageSize = 4096;
-	static constexpr size_t ChunkSize = sizeof(T) * PageSize;
-	static inline size_t index = PageSize;
+	static constexpr size_t ObjectsPerChunk = 4096;
+	static constexpr size_t ChunkSize = sizeof(T) * ObjectsPerChunk;
+	static inline size_t index = ObjectsPerChunk;
 	static inline T *buffer = nullptr;
 	public:
 	static T *allocate()
 	{
-		if (index == PageSize)
+		if (index == ObjectsPerChunk)
 		{
+			T *newBuffer = static_cast<T*>(allocate_pages(ChunkSize));
+			if (newBuffer == nullptr) { return nullptr; }
+			buffer = newBuffer;
 			index = 0;
-			buffer = static_cast<T*>(allocate_pages(ChunkSize));
 		}
 		return &buffer[index++];
 	}
