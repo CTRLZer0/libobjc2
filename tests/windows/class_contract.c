@@ -10,6 +10,21 @@
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
 
+static id copied_method(id self, SEL _cmd, ...)
+{
+	(void)_cmd;
+	return self;
+}
+
+static int method_list_contains(Method *list, unsigned int count, SEL selector)
+{
+	for (unsigned int i = 0; i < count; i++)
+	{
+		if (sel_isEqual(method_getName(list[i]), selector)) { return 1; }
+	}
+	return 0;
+}
+
 int main(void)
 {
 	mosaic_objc_runtime_initialize();
@@ -23,9 +38,38 @@ int main(void)
 	CHECK(meta != Nil);
 	CHECK(class_isMetaClass(meta) == YES);
 
+	uint8_t pointerAlignment = sizeof(void*) == 8 ? 3 : 2;
+	CHECK(class_addIvar(cls, "copiedIvar", sizeof(void*), pointerAlignment, "@") == YES);
+	SEL copiedSelector = sel_registerName("mosaicCopiedMethod");
+	CHECK(copiedSelector != NULL);
+	CHECK(class_addMethod(cls, copiedSelector, copied_method, "@@:") == YES);
+	Protocol *classProtocol = objc_allocateProtocol("MosaicClassCopyProtocol");
+	CHECK(classProtocol != NULL);
+	objc_registerProtocol(classProtocol);
+	CHECK(class_addProtocol(cls, classProtocol) == YES);
+
 	objc_registerClassPair(cls);
 	CHECK((Class)objc_getClass("MosaicClassContract") == cls);
 	CHECK((Class)objc_getMetaClass("MosaicClassContract") == meta);
+
+	unsigned int copiedCount = 0;
+	Ivar *copiedIvars = class_copyIvarList(cls, &copiedCount);
+	CHECK(copiedIvars != NULL && copiedCount == 1);
+	CHECK(copiedIvars[0] == class_getInstanceVariable(cls, "copiedIvar"));
+	CHECK(copiedIvars[copiedCount] == NULL);
+	free(copiedIvars);
+
+	Method *copiedMethods = class_copyMethodList(cls, &copiedCount);
+	CHECK(copiedMethods != NULL && copiedCount >= 1);
+	CHECK(method_list_contains(copiedMethods, copiedCount, copiedSelector));
+	CHECK(copiedMethods[copiedCount] == NULL);
+	free(copiedMethods);
+
+	Protocol **copiedProtocols = class_copyProtocolList(cls, &copiedCount);
+	CHECK(copiedProtocols != NULL && copiedCount == 1);
+	CHECK(copiedProtocols[0] == classProtocol);
+	CHECK(copiedProtocols[copiedCount] == NULL);
+	free(copiedProtocols);
 	CHECK(class_getProperty(cls, NULL) == NULL);
 
 	objc_property_attribute_t propertyAttributes[] = {{"T", "i"}, {"N", ""}};
