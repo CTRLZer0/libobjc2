@@ -67,22 +67,37 @@ PRIVATE SparseArray *SparseArrayNew()
 PRIVATE SparseArray *SparseArrayExpandingArray(SparseArray *sarray, uint32_t new_depth)
 {
 	if ((sarray == NULL) || !valid_depth(new_depth)) { return NULL; }
-	const uint32_t current_depth = sarray->shift + base_shift;
+	uint32_t current_depth = sarray->shift + base_shift;
 	if (new_depth == current_depth) { return sarray; }
-	if (new_depth != current_depth + base_shift) { return NULL; }
-	// Expanding a child sarray has undefined results.
+	if (new_depth < current_depth) { return NULL; }
 	assert(sarray->refCount == 1);
-	SparseArray *new = calloc(1, sizeof(SparseArray));
-	if (new == NULL) { return NULL; }
-	new->refCount = 1;
-	new->shift = sarray->shift + base_shift;
-	new->data[0] = sarray;
-	void *data = EmptyChildForShift(new->shift);
-	for (unsigned i = 1; i <= MAX_INDEX(sarray); ++i)
+
+	SparseArray *root = sarray;
+	while (current_depth < new_depth)
 	{
-		new->data[i] = data;
+		SparseArray *expanded = calloc(1, sizeof(SparseArray));
+		if (expanded == NULL)
+		{
+			while (root != sarray)
+			{
+				SparseArray *child = root->data[0];
+				free(root);
+				root = child;
+			}
+			return NULL;
+		}
+		expanded->refCount = 1;
+		expanded->shift = root->shift + base_shift;
+		expanded->data[0] = root;
+		void *empty = EmptyChildForShift(expanded->shift);
+		for (unsigned i = 1; i <= MAX_INDEX(expanded); ++i)
+		{
+			expanded->data[i] = empty;
+		}
+		root = expanded;
+		current_depth += base_shift;
 	}
-	return new;
+	return root;
 }
 
 static inline int is_empty_child(const SparseArray *child)
@@ -131,47 +146,55 @@ PRIVATE void *SparseArrayNext(SparseArray *sarray, uint32_t *idx)
 	return value;
 }
 
-PRIVATE void SparseArrayInsert(SparseArray * sarray, uint32_t index, void *value)
+PRIVATE int SparseArrayInsert(SparseArray *sarray, uint32_t index, void *value)
 {
-	if (sarray->shift > 0)
-	{
-		uint32_t i = MASK_INDEX(index);
-		SparseArray *child = sarray->data[i];
-		if (is_empty_child(child))
-		{
-			// Insert missing nodes
-			SparseArray * newsarray = calloc(1, sizeof(SparseArray));
-			newsarray->refCount = 1;
-			if (base_shift >= sarray->shift)
-			{
-				newsarray->shift = 0;
-			}
-			else
-			{
-				newsarray->shift = sarray->shift - base_shift;
-			}
-			init_pointers(newsarray);
-			sarray->data[i] = newsarray;
-			child = newsarray;
-		}
-		else if (child->refCount > 1)
-		{
-			// Copy the copy-on-write part of the tree
-			sarray->data[i] = SparseArrayCopy(child);
-			SparseArrayDestroy(child);
-			child = sarray->data[i];
-		}
-		SparseArrayInsert(child, index, value);
-	}
-	else
+	if (sarray == NULL) { return 0; }
+	if (sarray->shift == 0)
 	{
 		sarray->data[MASK_INDEX(index)] = value;
+		return 1;
 	}
+
+	uint32_t i = MASK_INDEX(index);
+	SparseArray *child = sarray->data[i];
+	SparseArray *replacement = child;
+	int publish = 0;
+	if (is_empty_child(child))
+	{
+		replacement = calloc(1, sizeof(SparseArray));
+		if (replacement == NULL) { return 0; }
+		replacement->refCount = 1;
+		replacement->shift = (base_shift >= sarray->shift)
+			? 0
+			: sarray->shift - base_shift;
+		init_pointers(replacement);
+		publish = 1;
+	}
+	else if (child->refCount > 1)
+	{
+		replacement = SparseArrayCopy(child);
+		if (replacement == NULL) { return 0; }
+		publish = 1;
+	}
+
+	if (!SparseArrayInsert(replacement, index, value))
+	{
+		if (publish) { SparseArrayDestroy(replacement); }
+		return 0;
+	}
+	if (publish)
+	{
+		sarray->data[i] = replacement;
+		if (!is_empty_child(child)) { SparseArrayDestroy(child); }
+	}
+	return 1;
 }
 
 PRIVATE SparseArray *SparseArrayCopy(SparseArray * sarray)
 {
+	if (sarray == NULL) { return NULL; }
 	SparseArray *copy = calloc(1, sizeof(SparseArray));
+	if (copy == NULL) { return NULL; }
 	memcpy(copy, sarray, sizeof(SparseArray));
 	copy->refCount = 1;
 	// If the sarray has children, increase their refcounts and link them
@@ -193,6 +216,7 @@ PRIVATE SparseArray *SparseArrayCopy(SparseArray * sarray)
 
 PRIVATE void SparseArrayDestroy(SparseArray * sarray)
 {
+	if (sarray == NULL) { return; }
 	// Don't really delete this sarray if its ref count is > 0
 	if (sarray == &EmptyArray ||
 	    sarray == &EmptyArray8 ||

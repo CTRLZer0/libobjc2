@@ -39,9 +39,19 @@ int main(void)
 	CHECK(larger != NULL && larger != small);
 	CHECK(SparseArrayLookup(larger, 7u) == &expanded);
 	CHECK(SparseArrayExpandingArray(larger, 16) == larger);
+	CHECK(SparseArrayExpandingArray(larger, 8) == NULL);
+
+	SparseArray *direct = SparseArrayNewWithDepth(8);
+	CHECK(direct != NULL);
+	SparseArrayInsert(direct, 9u, &expanded);
+	SparseArray *direct24 = SparseArrayExpandingArray(direct, 24);
+	CHECK(direct24 != NULL && direct24 != direct);
+	CHECK(direct24->shift == 16u);
+	CHECK(SparseArrayLookup(direct24, 9u) == &expanded);
 
 	SparseArrayDestroy(copy);
 	SparseArrayDestroy(array);
 	SparseArrayDestroy(larger);
+	SparseArrayDestroy(direct24);
 	return 0;
 }

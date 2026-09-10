@@ -27,6 +27,24 @@ _Static_assert(__builtin_offsetof(struct objc_slot2, method) == SLOT_OFFSET,
 _Static_assert(__builtin_offsetof(struct objc_method, imp) == SLOT_OFFSET,
 		"Incorrect slot offset for assembly");
 
+static inline SparseArray *new_sparse_array_or_abort(uint32_t depth)
+{
+	SparseArray *array = SparseArrayNewWithDepth(depth);
+	if (array == NULL) { abort(); }
+	return array;
+}
+
+static inline SparseArray *copy_sparse_array_or_abort(SparseArray *array)
+{
+	SparseArray *copy = SparseArrayCopy(array);
+	if (copy == NULL) { abort(); }
+	return copy;
+}
+
+static inline void sparse_array_insert_or_abort(SparseArray *array, uint32_t index, void *value)
+{
+	if (!SparseArrayInsert(array, index, value)) { abort(); }
+}
 PRIVATE dtable_t uninstalled_dtable;
 #if defined(WITH_TRACING) && defined (__x86_64)
 PRIVATE dtable_t tracing_dtable;
@@ -244,7 +262,7 @@ static void collectMethodsForMethodListToSparseArray(
 	}
 	for (unsigned i=0 ; i<list->count ; i++)
 	{
-		SparseArrayInsert(sarray, method_at_index(list, i)->selector->index,
+		sparse_array_insert_or_abort(sarray, method_at_index(list, i)->selector->index,
 				(void*)method_at_index(list, i));
 	}
 }
@@ -253,9 +271,9 @@ static void collectMethodsForMethodListToSparseArray(
 PRIVATE void init_dispatch_tables ()
 {
 	INIT_LOCK(initialize_lock);
-	uninstalled_dtable = SparseArrayNewWithDepth(dtable_depth);
+	uninstalled_dtable = new_sparse_array_or_abort(dtable_depth);
 #if defined(WITH_TRACING) && defined (__x86_64)
-	tracing_dtable = SparseArrayNewWithDepth(dtable_depth);
+	tracing_dtable = new_sparse_array_or_abort(dtable_depth);
 #endif
 }
 
@@ -301,31 +319,28 @@ PRIVATE void* popTraceReturnStack(void)
 int objc_registerTracingHook(SEL aSel, objc_tracing_hook aHook)
 {
 #if defined(WITH_TRACING) && defined (__x86_64)
-	// If this is an untyped selector, register it for every typed variant
+	SEL stackBuffer[16];
+	SEL *selectors = stackBuffer;
+	unsigned count = 1;
 	if (sel_getType_np(aSel) == 0)
 	{
-		SEL buffer[16];
-		SEL *overflow = 0;
-		int count = sel_copyTypedSelectors_np(sel_getName(aSel), buffer, 16);
+		count = sel_copyTypedSelectors_np(sel_getName(aSel), stackBuffer, 16);
 		if (count > 16)
 		{
-			overflow = calloc(count, sizeof(SEL));
-			sel_copyTypedSelectors_np(sel_getName(aSel), buffer, 16);
-			for (int i=0 ; i<count ; i++)
-			{
-				SparseArrayInsert(tracing_dtable, overflow[i]->index, aHook);
-			}
-			free(overflow);
+			selectors = calloc(count, sizeof(SEL));
+			if (selectors == NULL) { return ENOMEM; }
+			unsigned actual = sel_copyTypedSelectors_np(sel_getName(aSel), selectors, count);
+			if (actual > count) { free(selectors); return EAGAIN; }
+			count = actual;
 		}
-		else
+		for (unsigned i = 0; i < count; ++i)
 		{
-			for (int i=0 ; i<count ; i++)
-			{
-				SparseArrayInsert(tracing_dtable, buffer[i]->index, aHook);
-			}
+			if (!SparseArrayInsert(tracing_dtable, selectors[i]->index, aHook))
+			{ if (selectors != stackBuffer) { free(selectors); } return ENOMEM; }
 		}
+		if (selectors != stackBuffer) { free(selectors); }
 	}
-	SparseArrayInsert(tracing_dtable, aSel->index, aHook);
+	if (!SparseArrayInsert(tracing_dtable, aSel->index, aHook)) { return ENOMEM; }
 	return 0;
 #else
 	return ENOTSUP;
@@ -365,12 +380,12 @@ static BOOL installMethodInDtable(Class class,
 	{
 		return NO;
 	}
-	SparseArrayInsert(dtable, sel_id, method);
+	sparse_array_insert_or_abort(dtable, sel_id, method);
 	// In TDD mode, we also register the first typed method that we
 	// encounter as the untyped version.
 #ifdef TYPE_DEPENDENT_DISPATCH
 	uint32_t untyped_idx = get_untyped_idx(method->selector);
-	SparseArrayInsert(dtable, untyped_idx, method);
+	sparse_array_insert_or_abort(dtable, untyped_idx, method);
 #endif
 
 	static SEL cxx_construct, cxx_destruct;
@@ -431,7 +446,7 @@ static void installMethodsInClass(Class cls,
 		if (!installMethodInDtable(cls, dtable, m, method_to_replace, replaceExisting))
 		{
 			// Remove this method from the list, if it wasn't actually installed
-			SparseArrayInsert(methods, idx, 0);
+			sparse_array_insert_or_abort(methods, idx, 0);
 		}
 	}
 }
@@ -445,7 +460,7 @@ PRIVATE void objc_update_dtable_for_class(Class cls)
 
 	LOCK_RUNTIME_FOR_SCOPE();
 
-	SparseArray *methods = SparseArrayNewWithDepth(dtable_depth);
+	SparseArray *methods = new_sparse_array_or_abort(dtable_depth);
 	collectMethodsForMethodListToSparseArray((void*)cls->methods, methods, YES);
 	SparseArray *super_dtable = cls->super_class ? dtable_for_class(cls->super_class)
 	                                             : NULL;
@@ -458,7 +473,7 @@ static void rebaseDtableRecursive(Class cls, Class newSuper)
 {
 	dtable_t parentDtable = dtable_for_class(newSuper);
 	// Collect all of the methods for this class:
-	dtable_t temporaryDtable = SparseArrayNewWithDepth(dtable_depth);
+	dtable_t temporaryDtable = new_sparse_array_or_abort(dtable_depth);
 
 	for (struct objc_method_list *list = cls->methods ; list != NULL ; list = list->next)
 	{
@@ -470,7 +485,7 @@ static void rebaseDtableRecursive(Class cls, Class newSuper)
 			// pre-order so we'll see methods from categories first.
 			if (SparseArrayLookup(temporaryDtable, idx) == NULL)
 			{
-				SparseArrayInsert(temporaryDtable, idx, m);
+				sparse_array_insert_or_abort(temporaryDtable, idx, m);
 			}
 		}
 	}
@@ -484,8 +499,8 @@ static void rebaseDtableRecursive(Class cls, Class newSuper)
 	{
 		if (SparseArrayLookup(temporaryDtable, idx) == NULL)
 		{
-			SparseArrayInsert(dtable, idx, method);
-			SparseArrayInsert(temporaryDtable, idx, method);
+			sparse_array_insert_or_abort(dtable, idx, method);
+			sparse_array_insert_or_abort(temporaryDtable, idx, method);
 		}
 	}
 	idx = 0;
@@ -496,7 +511,7 @@ static void rebaseDtableRecursive(Class cls, Class newSuper)
 	{
 		if (SparseArrayLookup(temporaryDtable, idx) == NULL)
 		{
-			SparseArrayInsert(dtable, idx, NULL);
+			sparse_array_insert_or_abort(dtable, idx, NULL);
 		}
 	}
 	SparseArrayDestroy(temporaryDtable);
@@ -539,7 +554,7 @@ PRIVATE void add_method_list_to_class(Class cls,
 
 	LOCK_RUNTIME_FOR_SCOPE();
 
-	SparseArray *methods = SparseArrayNewWithDepth(dtable_depth);
+	SparseArray *methods = new_sparse_array_or_abort(dtable_depth);
 	SparseArray *super_dtable = cls->super_class ? dtable_for_class(cls->super_class)
 	                                             : NULL;
 	collectMethodsForMethodListToSparseArray(list, methods, NO);
@@ -566,7 +581,7 @@ PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable)
 
 	if (Nil == super)
 	{
-		dtable = SparseArrayNewWithDepth(dtable_depth);
+		dtable = new_sparse_array_or_abort(dtable_depth);
 	}
 	else
 	{
@@ -582,7 +597,7 @@ PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable)
 				abort();
 			}
 		}
-		dtable = SparseArrayCopy(super_dtable);
+		dtable = copy_sparse_array_or_abort(super_dtable);
 	}
 
 	// When constructing the initial dtable for a class, we iterate along the
@@ -610,32 +625,51 @@ PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable)
 
 Class class_table_next(void **e);
 
+static inline uint64_t dtable_capacity(uint32_t depth)
+{
+	return UINT64_C(1) << depth;
+}
+
+static uint32_t dtable_depth_for_size(uint32_t size)
+{
+	uint32_t depth = dtable_depth;
+	while ((depth < 32) && (dtable_capacity(depth) < size))
+	{
+		depth += 8;
+	}
+	return depth;
+}
+
+static dtable_t expand_dtable_or_abort(dtable_t dtable, uint32_t targetDepth)
+{
+	dtable_t expanded = SparseArrayExpandingArray((SparseArray*)dtable, targetDepth);
+	if (expanded == NULL) { abort(); }
+	return expanded;
+}
+
 PRIVATE void objc_resize_dtables(uint32_t newSize)
 {
-	// If dtables already have enough space to store all registered selectors, do nothing
-	if (1<<dtable_depth > newSize) { return; }
+	if (dtable_capacity(dtable_depth) >= newSize) { return; }
 
 	LOCK_RUNTIME_FOR_SCOPE();
+	if (dtable_capacity(dtable_depth) >= newSize) { return; }
 
-	if (1<<dtable_depth > newSize) { return; }
-
-	dtable_depth += 8;
-
-	uint32_t oldShift = uninstalled_dtable->shift;
+	const uint32_t targetDepth = dtable_depth_for_size(newSize);
+	const uint32_t oldShift = uninstalled_dtable->shift;
 	dtable_t old_uninstalled_dtable = uninstalled_dtable;
 
-	uninstalled_dtable = SparseArrayExpandingArray(uninstalled_dtable, dtable_depth);
+	uninstalled_dtable = expand_dtable_or_abort(uninstalled_dtable, targetDepth);
 #if defined(WITH_TRACING) && defined (__x86_64)
-	tracing_dtable = SparseArrayExpandingArray(tracing_dtable, dtable_depth);
+	tracing_dtable = expand_dtable_or_abort(tracing_dtable, targetDepth);
 #endif
 	{
 		LOCK_FOR_SCOPE(&initialize_lock);
 		for (InitializingDtable *buffer = temporary_dtables ; NULL != buffer ; buffer = buffer->next)
 		{
-			buffer->dtable = SparseArrayExpandingArray(buffer->dtable, dtable_depth);
+			buffer->dtable = expand_dtable_or_abort(buffer->dtable, targetDepth);
 		}
 	}
-	// Resize all existing dtables
+
 	void *e = NULL;
 	struct objc_class *next;
 	while ((next = class_table_next(&e)))
@@ -646,13 +680,13 @@ PRIVATE void objc_resize_dtables(uint32_t newSize)
 			next->isa->dtable = uninstalled_dtable;
 			continue;
 		}
-		if (NULL != next->dtable &&
-		    ((SparseArray*)next->dtable)->shift == oldShift)
+		if (NULL != next->dtable && ((SparseArray*)next->dtable)->shift == oldShift)
 		{
-			next->dtable = SparseArrayExpandingArray((void*)next->dtable, dtable_depth);
-			next->isa->dtable = SparseArrayExpandingArray((void*)next->isa->dtable, dtable_depth);
+			next->dtable = expand_dtable_or_abort((void*)next->dtable, targetDepth);
+			next->isa->dtable = expand_dtable_or_abort((void*)next->isa->dtable, targetDepth);
 		}
 	}
+	dtable_depth = targetDepth;
 }
 
 PRIVATE void free_dtable(dtable_t dtable)

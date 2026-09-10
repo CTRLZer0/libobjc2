@@ -120,7 +120,7 @@ SparseArray *SparseArrayExpandingArray(SparseArray *sarray, uint32_t new_depth);
 /**
  * Insert a value at the specified index.
  */
-void SparseArrayInsert(SparseArray * sarray, uint32_t index, void * value);
+int SparseArrayInsert(SparseArray * sarray, uint32_t index, void * value);
 /**
  * Destroy the sparse array.  Note that calling this while other threads are
  * performing lookups is guaranteed to break.
