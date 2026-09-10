@@ -116,7 +116,9 @@ set(libobjc_HDRS
 	objc/objc-runtime.h
 	objc/objc-visibility.h
 	objc/objc.h
+	objc/runtime-association.h
 	objc/runtime-deprecated.h
+	objc/runtime-property.h
 	objc/runtime-selector.h
 	objc/runtime-types.h
 	objc/runtime.h

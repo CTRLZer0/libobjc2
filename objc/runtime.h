@@ -524,54 +524,7 @@ OBJC_PUBLIC
 const char *object_getClassName(id obj);
 
 
-/**
- * Returns the name of a specified property.
- */
-OBJC_PUBLIC
-const char *property_getName(objc_property_t property);
-
-/**
- * Returns the attributes for the specified property.  This is similar to an
- * Objective-C type encoding, but contains some extra information.  A full
- * description of the format for this string may be found in Apple's
- * Objective-C Runtime Programming Guide.
- */
-OBJC_PUBLIC
-const char *property_getAttributes(objc_property_t property);
-
-/**
- * Returns an array of attributes for this property.
- */
-OBJC_PUBLIC
-objc_property_attribute_t *property_copyAttributeList(objc_property_t property,
-                                                      unsigned int *outCount);
-/**
- * Adds a property to the class, given a specified set of attributes.  Note
- * that this only sets the property metadata.  The property accessor methods
- * must already be created.
- */
-OBJC_PUBLIC
-BOOL class_addProperty(Class cls,
-                       const char *name,
-                       const objc_property_attribute_t *attributes, 
-                       unsigned int attributeCount);
-
-/**
- * Replaces property metadata.  If the property does not exist, then this is
- * equivalent to calling class_addProperty().
- */
-OBJC_PUBLIC
-void class_replaceProperty(Class cls,
-                           const char *name,
-                           const objc_property_attribute_t *attributes,
-                           unsigned int attributeCount);
-
-/**
- * Returns a copy of a single attribute.
- */
-OBJC_PUBLIC
-char *property_copyAttributeValue(objc_property_t property,
-                                  const char *attributeName);
+#include "runtime-property.h"
 
 /**
  * Testswhether a protocol conforms to another protocol.
@@ -755,59 +708,7 @@ BOOL objc_registerSmallObjectClass_np(Class cls, uintptr_t classId);
 #endif
 
 
-/**
- * Valid values for objc_AssociationPolicy.  This is really a bitfield, but
- * only specific combinations of flags are permitted.
- */
-enum
-{
-	/**
-	 * Perform straight assignment, no message sends.
-	 */
-	OBJC_ASSOCIATION_ASSIGN = 0,
-	/**
-	 * Retain the associated object.
-	 */
-	OBJC_ASSOCIATION_RETAIN_NONATOMIC = 1,
-	/**
-	 * Copy the associated object, by sending it a -copy message.
-	 */
-	OBJC_ASSOCIATION_COPY_NONATOMIC = 3,
-	/**
-	 * Atomic retain.
-	 */
-	OBJC_ASSOCIATION_RETAIN = 0x301,
-	/**
-	 * Atomic copy.
-	 */
-	OBJC_ASSOCIATION_COPY = 0x303
-};
-/**
- * Association policy, used when setting associated objects.  
- */
-typedef uintptr_t objc_AssociationPolicy;
-
-/**
- * Returns an object previously stored by calling objc_setAssociatedObject()
- * with the same arguments, or nil if none exists.
- */
-OBJC_PUBLIC
-id objc_getAssociatedObject(id object, const void *key);
-/**
- * Associates an object with another.  This provides a mechanism for storing
- * extra state with an object, beyond its declared instance variables.  The
- * pointer used as a key is treated as an opaque value.  The best way of
- * ensuring this is to pass the pointer to a static variable as the key.  The
- * value may be any object, but must respond to -copy or -retain, and -release,
- * if an association policy of copy or retain is passed as the final argument.
- */
-OBJC_PUBLIC
-void objc_setAssociatedObject(id object, const void *key, id value, objc_AssociationPolicy policy);
-/**
- * Removes all associations from an object.  
- */
-OBJC_PUBLIC
-void objc_removeAssociatedObjects(id object);
+#include "runtime-association.h"
 
 /**
  * Converts a block into an IMP that can be used as a method.  The block should
