@@ -645,11 +645,11 @@ unsigned sel_copyTypedSelectors_np(const char *selName, SEL *const sels, unsigne
 	unsigned found = 0;
 	for (auto type : *l)
 	{
-		if (found > count)
+		if (found < count)
 		{
-			break;
+			sels[found] = selector_lookup(selName, type);
 		}
-		sels[found++] = selector_lookup(selName, type);
+		found++;
 	}
 	return found;
 }
