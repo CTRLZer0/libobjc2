@@ -40,6 +40,7 @@ release announcements remain under `docs/archive/upstream/releases/`.
 
 ### Fixed
 
+- Object allocation now rejects size overflow and propagates allocation failure instead of dereferencing a null instance; legacy GC compare-and-swap APIs use explicit barrier semantics.
 - Hash-table removal of a missing key now releases the table lock, and inserting through `table_set` no longer dereferences a missing cell.
 - `objc_disposeClassPair()` now handles dynamically-created root classes without dereferencing a nil superclass.
 - `class_addIvar()` now initializes ivar size and ownership flags before applying

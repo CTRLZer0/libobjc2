@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdint.h>
 
 // Alignment of object allocations.  The reference-count word precedes the
 // object and thus sits at the head of the block, so aligning the block to a
@@ -33,10 +34,16 @@ _Static_assert(OBJC_ALLOC_ALIGN >= _Alignof(max_align_t),
 
 static id allocate_class(Class cls, size_t extraBytes)
 {
-	size_t size = cls->instance_size + extraBytes + sizeof(intptr_t);
+	size_t size = (size_t)cls->instance_size;
+	if (extraBytes > SIZE_MAX - size) { return NULL; }
+	size += extraBytes;
+	if (sizeof(intptr_t) > SIZE_MAX - size) { return NULL; }
+	size += sizeof(intptr_t);
+
 	intptr_t *addr;
 #ifdef _WIN32
 	addr = _aligned_malloc(size, OBJC_ALLOC_ALIGN);
+	if (addr == NULL) { return NULL; }
 	memset(addr, 0, size);
 #else
 	// calloc/malloc already return memory aligned to _Alignof(max_align_t); only
@@ -62,6 +69,7 @@ static id allocate_class(Class cls, size_t extraBytes)
 
 static void free_object(id obj)
 {
+	if (obj == nil) { return; }
 #ifdef _WIN32
 	_aligned_free((void*)(((intptr_t*)obj) - 1));
 #else
@@ -91,13 +99,23 @@ void objc_set_collection_threshold(size_t threshold) {}
 void objc_set_collection_ratio(size_t ratio) {}
 void objc_collect(unsigned long options) {}
 BOOL objc_collectingEnabled(void) { return NO; }
+static BOOL compare_and_swap(id predicate, id replacement, volatile id *objectLocation,
+                             int successOrder, int failureOrder)
+{
+	id expected = predicate;
+	return __atomic_compare_exchange_n(objectLocation, &expected, replacement, 0,
+		successOrder, failureOrder);
+}
+
 BOOL objc_atomicCompareAndSwapPtr(id predicate, id replacement, volatile id *objectLocation)
 {
-	return __sync_bool_compare_and_swap(objectLocation, predicate, replacement);
+	return compare_and_swap(predicate, replacement, objectLocation,
+		__ATOMIC_RELAXED, __ATOMIC_RELAXED);
 }
 BOOL objc_atomicCompareAndSwapPtrBarrier(id predicate, id replacement, volatile id *objectLocation)
 {
-	return __sync_bool_compare_and_swap(objectLocation, predicate, replacement);
+	return compare_and_swap(predicate, replacement, objectLocation,
+		__ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 
 BOOL objc_atomicCompareAndSwapGlobal(id predicate, id replacement, volatile id *objectLocation)
@@ -106,7 +124,7 @@ BOOL objc_atomicCompareAndSwapGlobal(id predicate, id replacement, volatile id *
 }
 BOOL objc_atomicCompareAndSwapGlobalBarrier(id predicate, id replacement, volatile id *objectLocation)
 {
-	return objc_atomicCompareAndSwapPtr(predicate, replacement, objectLocation);
+	return objc_atomicCompareAndSwapPtrBarrier(predicate, replacement, objectLocation);
 }
 BOOL objc_atomicCompareAndSwapInstanceVariable(id predicate, id replacement, volatile id *objectLocation)
 {
@@ -114,7 +132,7 @@ BOOL objc_atomicCompareAndSwapInstanceVariable(id predicate, id replacement, vol
 }
 BOOL objc_atomicCompareAndSwapInstanceVariableBarrier(id predicate, id replacement, volatile id *objectLocation)
 {
-	return objc_atomicCompareAndSwapPtr(predicate, replacement, objectLocation);
+	return objc_atomicCompareAndSwapPtrBarrier(predicate, replacement, objectLocation);
 }
 
 id objc_assign_strongCast(id val, id *ptr)

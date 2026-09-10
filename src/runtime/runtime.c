@@ -389,6 +389,7 @@ id class_createInstance(Class cls, size_t extraBytes)
 	// its isa pointer!
 	if (cls->instance_size < sizeof(Class)) { return nil; }
 	id obj = gc->allocate_class(cls, extraBytes);
+	if (obj == nil) { return nil; }
 	obj->isa = cls;
 	checkARCAccessorsSlow(cls);
 	call_cxx_construct(obj);

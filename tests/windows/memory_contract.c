@@ -7,6 +7,8 @@
 #include "test_support.h"
 #include "objc/runtime.h"
 #include "objc/objc-arc.h"
+#include "objc/objc-auto.h"
+#include <stdint.h>
 #include "objc/mosaic.h"
 
 static unsigned retains;
@@ -47,6 +49,18 @@ int main(void)
 	id holder = class_createInstance(cls, 0);
 	id value = class_createInstance(cls, 0);
 	CHECK(holder != nil && value != nil);
+	CHECK(class_createInstance(cls, SIZE_MAX) == nil);
+
+	volatile id cas_slot = holder;
+	CHECK(objc_atomicCompareAndSwapPtr(holder, value, &cas_slot));
+	CHECK(cas_slot == value);
+	CHECK(!objc_atomicCompareAndSwapPtr(holder, holder, &cas_slot));
+	CHECK(objc_atomicCompareAndSwapPtrBarrier(value, holder, &cas_slot));
+	CHECK(cas_slot == holder);
+	CHECK(objc_atomicCompareAndSwapGlobal(holder, value, &cas_slot));
+	CHECK(objc_atomicCompareAndSwapGlobalBarrier(value, holder, &cas_slot));
+	CHECK(objc_atomicCompareAndSwapInstanceVariable(holder, value, &cas_slot));
+	CHECK(objc_atomicCompareAndSwapInstanceVariableBarrier(value, holder, &cas_slot));
 
 	CHECK(objc_retain(value) == value);
 	objc_release(value);
