@@ -115,14 +115,13 @@ static void checkFastAllocInit(Class cls)
 	{
 		return;
 	}
-	static SEL alloc, allocWithZone, init, isTrivialAllocInit;
-	if (NULL == alloc)
-	{
-		alloc = sel_registerName("alloc");
-		allocWithZone = sel_registerName("allocWithZone:");
-		init = sel_registerName("init");
-		isTrivialAllocInit = sel_registerName("_TrivialAllocInit");
-	}
+	static SEL allocStorage, allocWithZoneStorage, initStorage, trivialStorage;
+	SEL alloc = objc2_get_or_register_selector(&allocStorage, "alloc");
+	SEL allocWithZone = objc2_get_or_register_selector(
+		&allocWithZoneStorage, "allocWithZone:");
+	SEL init = objc2_get_or_register_selector(&initStorage, "init");
+	SEL isTrivialAllocInit = objc2_get_or_register_selector(
+		&trivialStorage, "_TrivialAllocInit");
 	Class metaclass = cls->isa;
 	Class isTrivialOwner = ownerForMethod(metaclass, isTrivialAllocInit);
 	// If nothing in this hierarchy opts in to trivial alloc / init behaviour, give up.
@@ -165,14 +164,13 @@ static void checkFastAllocInit(Class cls)
 static void checkARCAccessors(Class cls)
 {
 	checkFastAllocInit(cls);
-	static SEL retain, release, autorelease, isARC;
-	if (NULL == retain)
-	{
-		retain = sel_registerName("retain");
-		release = sel_registerName("release");
-		autorelease = sel_registerName("autorelease");
-		isARC = sel_registerName("_ARCCompliantRetainRelease");
-	}
+	static SEL retainStorage, releaseStorage, autoreleaseStorage, arcStorage;
+	SEL retain = objc2_get_or_register_selector(&retainStorage, "retain");
+	SEL release = objc2_get_or_register_selector(&releaseStorage, "release");
+	SEL autorelease = objc2_get_or_register_selector(
+		&autoreleaseStorage, "autorelease");
+	SEL isARC = objc2_get_or_register_selector(
+		&arcStorage, "_ARCCompliantRetainRelease");
 	Class owner = ownerForMethod(cls, retain);
 	if ((NULL != owner) && !ownsMethod(owner, isARC))
 	{
@@ -212,14 +210,13 @@ PRIVATE void checkARCAccessorsSlow(Class cls)
 	{
 		return;
 	}
-	static SEL retain, release, autorelease, isARC;
-	if (NULL == retain)
-	{
-		retain = sel_registerName("retain");
-		release = sel_registerName("release");
-		autorelease = sel_registerName("autorelease");
-		isARC = sel_registerName("_ARCCompliantRetainRelease");
-	}
+	static SEL retainStorage, releaseStorage, autoreleaseStorage, arcStorage;
+	SEL retain = objc2_get_or_register_selector(&retainStorage, "retain");
+	SEL release = objc2_get_or_register_selector(&releaseStorage, "release");
+	SEL autorelease = objc2_get_or_register_selector(
+		&autoreleaseStorage, "autorelease");
+	SEL isARC = objc2_get_or_register_selector(
+		&arcStorage, "_ARCCompliantRetainRelease");
 	BOOL superIsFast = YES;
 	if (cls->super_class != Nil)
 	{
@@ -388,12 +385,11 @@ static BOOL installMethodInDtable(Class class,
 	sparse_array_insert_or_abort(dtable, untyped_idx, method);
 #endif
 
-	static SEL cxx_construct, cxx_destruct;
-	if (NULL == cxx_construct)
-	{
-		cxx_construct = sel_registerName(".cxx_construct");
-		cxx_destruct = sel_registerName(".cxx_destruct");
-	}
+	static SEL cxxConstructStorage, cxxDestructStorage;
+	SEL cxx_construct = objc2_get_or_register_selector(
+		&cxxConstructStorage, ".cxx_construct");
+	SEL cxx_destruct = objc2_get_or_register_selector(
+		&cxxDestructStorage, ".cxx_destruct");
 	if (selEqualUnTyped(method->selector, cxx_construct))
 	{
 		class->cxx_construct = method->imp;
@@ -840,11 +836,9 @@ OBJC_PUBLIC void objc_send_initialize(id object)
 	// to finish setting up the temporary dtable.
 	UNLOCK_RUNTIME();
 
-	static SEL initializeSel = 0;
-	if (0 == initializeSel)
-	{
-		initializeSel = sel_registerName("initialize");
-	}
+	static SEL initializeStorage;
+	SEL initializeSel = objc2_get_or_register_selector(
+		&initializeStorage, "initialize");
 
 	struct objc_method *initializeSlot = skipMeta ? 0 :
 			objc_dtable_lookup(dtable, initializeSel->index);

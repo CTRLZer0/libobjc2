@@ -46,6 +46,22 @@ static SEL sel_getUntyped(SEL aSel)
 	return sel_registerTypedName_np(sel_getName(aSel), 0);
 }
 
+/** Thread-safe lazy registration for selectors cached by C runtime code. */
+__attribute__((unused))
+static inline SEL objc2_get_or_register_selector(SEL *storage, const char *name)
+{
+	SEL selector = __atomic_load_n(storage, __ATOMIC_ACQUIRE);
+	if (selector != NULL) { return selector; }
+	SEL candidate = sel_registerName(name);
+	SEL expected = NULL;
+	if (__atomic_compare_exchange_n(storage, &expected, candidate, 0,
+		__ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+	{
+		return candidate;
+	}
+	return expected;
+}
+
 #ifdef __cplusplus
 extern "C"
 {

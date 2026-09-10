@@ -33,11 +33,9 @@ void objc_send_initialize(id object);
  */
 PRIVATE void call_cxx_destruct(id obj)
 {
-	static SEL cxx_destruct;
-	if (NULL == cxx_destruct)
-	{
-		cxx_destruct = sel_registerName(".cxx_destruct");
-	}
+	static SEL cxx_destruct_storage;
+	SEL cxx_destruct = objc2_get_or_register_selector(
+		&cxx_destruct_storage, ".cxx_destruct");
 	// Don't call object_getClass(), because we want to get hidden classes too
 	Class cls = classForObject(obj);
 
@@ -56,11 +54,9 @@ PRIVATE void call_cxx_destruct(id obj)
 
 static void call_cxx_construct_for_class(Class cls, id obj)
 {
-	static SEL cxx_construct;
-	if (NULL == cxx_construct)
-	{
-		cxx_construct = sel_registerName(".cxx_construct");
-	}
+	static SEL cxx_construct_storage;
+	SEL cxx_construct = objc2_get_or_register_selector(
+		&cxx_construct_storage, ".cxx_construct");
 
 	if (cls->super_class)
 	{

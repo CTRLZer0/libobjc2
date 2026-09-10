@@ -86,3 +86,9 @@ add_mosaic_runtime_test(
 	blocks_contract.c)
 target_include_directories(mosaic_objc_blocks_contract PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/blocks")
+
+add_mosaic_runtime_test(
+	mosaic_objc_lazy_selector_contract
+	lazy_selector_contract.c)
+target_include_directories(mosaic_objc_lazy_selector_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/dispatch")
