@@ -6,9 +6,9 @@
 #include "objcxx_eh_private.h"
 #include "objcxx_eh.h"
 #include "objc/runtime.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/arc.h"
 #include "objc/objc-exception.h"
-#include "objc/hooks.h"
+#include "objc/support/hooks.h"
 
 namespace __cxxabiv1
 {

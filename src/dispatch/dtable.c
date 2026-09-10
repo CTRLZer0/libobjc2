@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <errno.h>
 #include "objc/runtime.h"
-#include "objc/hooks.h"
+#include "objc/support/hooks.h"
 #include "sarray2.h"
 #include "selector.h"
 #include "class.h"

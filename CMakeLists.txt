@@ -154,6 +154,17 @@ set(libobjc_RUNTIME_HDRS
 set(libobjc_COMPAT_HDRS
 	objc/compat/runtime-deprecated.h)
 
+set(libobjc_MEMORY_HDRS
+	objc/memory/arc.h
+	objc/memory/auto.h)
+
+set(libobjc_SUPPORT_HDRS
+	objc/support/availability.h
+	objc/support/capabilities.h
+	objc/support/developer.h
+	objc/support/hooks.h
+	objc/support/visibility.h)
+
 set(libobjc_CXX_SRCS
 	src/dispatch/selector_table.cc
 	)
@@ -486,6 +497,10 @@ install(FILES ${libobjc_RUNTIME_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/runtime")
 install(FILES ${libobjc_COMPAT_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/compat")
+install(FILES ${libobjc_MEMORY_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/memory")
+install(FILES ${libobjc_SUPPORT_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/support")
 
 if (EMBEDDED_BLOCKS_RUNTIME)
 	install(FILES ${libBlocksRuntime_COMPATIBILITY_HDRS}

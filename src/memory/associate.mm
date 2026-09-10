@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "objc/runtime.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/arc.h"
 #include "nsobject.h"
 #include "spinlock.h"
 #include "class.h"

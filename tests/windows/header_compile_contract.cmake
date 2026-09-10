@@ -14,6 +14,9 @@ set(headers
 	runtime/association.h runtime/dispatch.h runtime/small-object.h runtime/block.h
 	runtime/compiler.h runtime/encoding.h runtime/class.h runtime/object.h
 	runtime/ivar.h runtime/method.h compat/runtime-deprecated.h
+	memory/arc.h memory/auto.h
+	support/availability.h support/capabilities.h support/developer.h
+	support/hooks.h support/visibility.h
 	runtime-types.h runtime-selector.h runtime-property.h runtime-protocol.h
 	runtime-association.h runtime-dispatch.h runtime-small-object.h runtime-block.h
 	runtime-compiler.h runtime-encoding.h runtime-deprecated.h

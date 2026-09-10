@@ -2,8 +2,8 @@
 #include <assert.h>
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
-#include "objc/objc-auto.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/auto.h"
+#include "objc/memory/arc.h"
 #include "lock.h"
 #include "loader.h"
 #include "visibility.h"

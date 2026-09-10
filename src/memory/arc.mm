@@ -25,8 +25,8 @@
 #import "class.h"
 #import "selector.h"
 #import "visibility.h"
-#import "objc/hooks.h"
-#import "objc/objc-arc.h"
+#import "objc/support/hooks.h"
+#import "objc/memory/arc.h"
 #include "objc/message.h"
 
 /**

@@ -5,9 +5,9 @@
 #ifndef __LIBOBJC_RUNTIME_TYPES_H_INCLUDED__
 #define __LIBOBJC_RUNTIME_TYPES_H_INCLUDED__
 
-#include <objc/objc-visibility.h>
+#include <objc/support/visibility.h>
 #include <objc/objc-config.h>
-#include <objc/Availability.h>
+#include <objc/support/availability.h>
 
 #ifndef __GNUSTEP_RUNTIME__
 #	define __GNUSTEP_RUNTIME__

@@ -1,5 +1,5 @@
 #include "objc/runtime.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/arc.h"
 #include "crt_compat.h"
 #include <stdio.h>
 #include <assert.h>

@@ -26,7 +26,7 @@
 #import "objc/blocks_runtime.h"
 #include "objc/blocks_private.h"
 #import "objc/runtime.h"
-#import "objc/objc-arc.h"
+#import "objc/memory/arc.h"
 #include "blocks_runtime.h"
 #include "gc_ops.h"
 #include "visibility.h"

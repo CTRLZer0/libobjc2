@@ -3,7 +3,7 @@
 #include <string.h>
 #include "dwarf_eh.h"
 #include "objc/runtime.h"
-#include "objc/hooks.h"
+#include "objc/support/hooks.h"
 #include "objc/objc-exception.h"
 #include "class.h"
 #include "objcxx_eh.h"

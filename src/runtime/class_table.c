@@ -1,6 +1,6 @@
 #include "objc/runtime.h"
-#include "objc/hooks.h"
-#include "objc/developer.h"
+#include "objc/support/hooks.h"
+#include "objc/support/developer.h"
 #include "alias.h"
 #include "class.h"
 #include "method.h"

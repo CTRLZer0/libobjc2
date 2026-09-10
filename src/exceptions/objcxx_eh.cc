@@ -7,7 +7,7 @@
 #include "dwarf_eh.h"
 #include "objcxx_eh_private.h"
 #include "objcxx_eh.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/arc.h"
 
 /**
  * Helper function that has a custom personality function.

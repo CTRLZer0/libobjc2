@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "objc/runtime.h"
-#include "objc/objc-arc.h"
+#include "objc/memory/arc.h"
 #include "class.h"
 #include "visibility.h"
 #include "gc_ops.h"
