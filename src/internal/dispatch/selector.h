@@ -1,7 +1,7 @@
 #ifndef OBJC_SELECTOR_H_INCLUDED
 #define OBJC_SELECTOR_H_INCLUDED
 #include <stdint.h>
-#include "objc/runtime.h"
+#include "objc/runtime-selector.h"
 
 /**
  * Structure used to store selectors in the list.

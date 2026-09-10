@@ -1,3 +1,6 @@
+#ifndef OBJC_ALIAS_H_INCLUDED
+#define OBJC_ALIAS_H_INCLUDED
+
 /** Declaration of a helper function for getting class references from aliases.
    Copyright (c) 2011 Free Software Foundation, Inc.
 
@@ -22,6 +25,8 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
    THE SOFTWARE.
 */
-#include "objc/runtime.h"
+#include "objc/runtime-types.h"
 
 OBJC_PUBLIC Class alias_getClass(const char *alias_name);
+
+#endif // OBJC_ALIAS_H_INCLUDED

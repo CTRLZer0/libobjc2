@@ -1,5 +1,6 @@
 #pragma once
 #include <assert.h>
+#include "objc/runtime-types.h"
 
 /**
  * Metadata structure describing a method.  

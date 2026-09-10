@@ -1,7 +1,7 @@
 #ifndef __OBJC_CLASS_H_INCLUDED
 #define __OBJC_CLASS_H_INCLUDED
 #include "visibility.h"
-#include "objc/runtime.h"
+#include "objc/runtime-small-object.h"
 #include "sarray2.h"
 #include <stdint.h>
 
