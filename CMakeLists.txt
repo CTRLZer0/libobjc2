@@ -117,6 +117,10 @@ set(libobjc_HDRS
 	objc/objc-visibility.h
 	objc/objc.h
 	objc/runtime-association.h
+	objc/runtime-class.h
+	objc/runtime-object.h
+	objc/runtime-ivar.h
+	objc/runtime-method.h
 	objc/runtime-deprecated.h
 	objc/runtime-property.h
 	objc/runtime-protocol.h
