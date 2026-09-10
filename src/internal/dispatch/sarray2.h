@@ -18,12 +18,11 @@
  * The size of the data array.  The sparse array is a tree with this many
  * children at each node depth.
  */
-static const uint32_t data_size = 256;
-/**
- * The mask used to access the elements in the data array in a sparse array
- * node.
- */
-static const uint32_t data_mask = data_size - 1;
+enum
+{
+	data_size = 256,
+	data_mask = data_size - 1
+};
 /**
  * Sparse arrays, used to implement dispatch tables.  Current implementation is
  * quite RAM-intensive and could be optimised.  Maps 32-bit integers to pointers.
@@ -110,13 +109,12 @@ static inline void* SparseArrayLookup(SparseArray * sarray, uint32_t index)
 SparseArray *SparseArrayNew();
 /**
  * Creates a new sparse array with the specified capacity.  The depth indicates
- * the number of bits to use for the key.  Must be a value between 8 and 32 and
- * should ideally be a multiple of base_shift.
+ * the number of bits to use for the key.  Valid depths are 8, 16, 24, and 32.
  */
 SparseArray *SparseArrayNewWithDepth(uint32_t depth);
 /**
- * Returns a new sparse array created by adding this one as the first child
- * node in an expanded one.
+ * Expands the array by one 8-bit level.  Passing the current depth is
+ * idempotent; invalid or non-adjacent depths return NULL.
  */
 SparseArray *SparseArrayExpandingArray(SparseArray *sarray, uint32_t new_depth);
 /**

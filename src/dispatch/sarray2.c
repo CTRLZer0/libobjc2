@@ -16,7 +16,7 @@ const static SparseArray EmptyArray24 = { 24, 0, .data[0 ... 255] = (void*)&Empt
 // Tweak this value to trade speed for memory usage.  Bigger values use more
 // memory, but give faster lookups.  
 #define base_shift 8
-#define base_mask ((1<<base_shift) - 1)
+#define base_mask ((UINT32_C(1) << base_shift) - 1)
 
 static void *EmptyChildForShift(uint32_t shift)
 {
@@ -44,11 +44,18 @@ static void init_pointers(SparseArray * sarray)
 	}
 }
 
+static inline int valid_depth(uint32_t depth)
+{
+	return (depth >= base_shift) && (depth <= 32) && ((depth % base_shift) == 0);
+}
+
 PRIVATE SparseArray * SparseArrayNewWithDepth(uint32_t depth)
 {
-	SparseArray * sarray = calloc(1, sizeof(SparseArray));
+	if (!valid_depth(depth)) { return NULL; }
+	SparseArray *sarray = calloc(1, sizeof(SparseArray));
+	if (sarray == NULL) { return NULL; }
 	sarray->refCount = 1;
-	sarray->shift = depth-base_shift;
+	sarray->shift = depth - base_shift;
 	init_pointers(sarray);
 	return sarray;
 }
@@ -59,85 +66,69 @@ PRIVATE SparseArray *SparseArrayNew()
 }
 PRIVATE SparseArray *SparseArrayExpandingArray(SparseArray *sarray, uint32_t new_depth)
 {
-	if (new_depth == sarray->shift)
-	{
-		return sarray;
-	}
-	assert(new_depth > sarray->shift);
+	if ((sarray == NULL) || !valid_depth(new_depth)) { return NULL; }
+	const uint32_t current_depth = sarray->shift + base_shift;
+	if (new_depth == current_depth) { return sarray; }
+	if (new_depth != current_depth + base_shift) { return NULL; }
 	// Expanding a child sarray has undefined results.
 	assert(sarray->refCount == 1);
 	SparseArray *new = calloc(1, sizeof(SparseArray));
+	if (new == NULL) { return NULL; }
 	new->refCount = 1;
-	new->shift = sarray->shift + 8;
+	new->shift = sarray->shift + base_shift;
 	new->data[0] = sarray;
 	void *data = EmptyChildForShift(new->shift);
-	for(unsigned i=1 ; i<=MAX_INDEX(sarray) ; i++)
+	for (unsigned i = 1; i <= MAX_INDEX(sarray); ++i)
 	{
 		new->data[i] = data;
 	}
-	// Now, any lookup in sarray for any value less than its capacity will have
-	// all non-zero values shifted away, resulting in 0.  All lookups will
-	// therefore go to the new sarray.
 	return new;
 }
 
-static void *SparseArrayFind(SparseArray * sarray, uint32_t * index)
+static inline int is_empty_child(const SparseArray *child)
 {
-	uint32_t j = MASK_INDEX((*index));
-	uint32_t max = MAX_INDEX(sarray);
-	if (sarray->shift == 0)
+	return (child == &EmptyArray) || (child == &EmptyArray8) ||
+	       (child == &EmptyArray16) || (child == &EmptyArray24);
+}
+
+static void *SparseArrayFindFrom(SparseArray *sarray, uint32_t start,
+                                 uint32_t prefix, uint32_t *found)
+{
+	const uint32_t shift = sarray->shift;
+	const uint32_t first = (start >> shift) & UINT32_C(0xff);
+	for (uint32_t slot = first; slot <= UINT32_C(0xff); ++slot)
 	{
-		while (j<=max)
+		const uint32_t slot_prefix = prefix | (slot << shift);
+		if (shift == 0)
 		{
-			if (sarray->data[j] != SARRAY_EMPTY)
+			void *value = sarray->data[slot];
+			if ((value != SARRAY_EMPTY) && (slot_prefix >= start))
 			{
-				return sarray->data[j];
+				*found = slot_prefix;
+				return value;
 			}
-			(*index)++;
-			j++;
+			continue;
 		}
-	}
-	else while (j<max)
-	{
-		// If the shift is not 0, then we need to recursively look at child
-		// nodes.
-		uint32_t zeromask = ~((0xff << sarray->shift) >> base_shift);
-		while (j<max)
-		{
-			//Look in child nodes
-			SparseArray *child = sarray->data[j];
-			// Skip over known-empty children
-			if ((&EmptyArray == child) ||
-			    (&EmptyArray8 == child) ||
-			    (&EmptyArray16 == child) ||
-			    (&EmptyArray24 == child))
-			{
-				//Add 2^n to index so j is still correct
-				(*index) += 1<<sarray->shift;
-				//Zero off the next component of the index so we don't miss any.
-				*index &= zeromask;
-			}
-			else
-			{
-				// The recursive call will set index to the correct value for
-				// the next index, but won't update j
-				void * ret = SparseArrayFind(child, index);
-				if (ret != SARRAY_EMPTY)
-				{
-					return ret;
-				}
-			}
-			//Go to the next child
-			j++;
-		}
+
+		SparseArray *child = sarray->data[slot];
+		if (is_empty_child(child)) { continue; }
+		const uint32_t child_start = (slot == first) ? start : slot_prefix;
+		void *value = SparseArrayFindFrom(child, child_start, slot_prefix, found);
+		if (value != SARRAY_EMPTY) { return value; }
 	}
 	return SARRAY_EMPTY;
 }
 
-PRIVATE void *SparseArrayNext(SparseArray * sarray, uint32_t * idx)
+PRIVATE void *SparseArrayNext(SparseArray *sarray, uint32_t *idx)
 {
-	(*idx)++;
-	return SparseArrayFind(sarray, idx);
+	if ((sarray == NULL) || (idx == NULL) || (*idx == UINT32_MAX))
+	{
+		return SARRAY_EMPTY;
+	}
+	const uint32_t start = *idx + 1;
+	void *value = SparseArrayFindFrom(sarray, start, 0, idx);
+	if (value == SARRAY_EMPTY) { *idx = UINT32_MAX; }
+	return value;
 }
 
 PRIVATE void SparseArrayInsert(SparseArray * sarray, uint32_t index, void *value)
@@ -146,10 +137,7 @@ PRIVATE void SparseArrayInsert(SparseArray * sarray, uint32_t index, void *value
 	{
 		uint32_t i = MASK_INDEX(index);
 		SparseArray *child = sarray->data[i];
-		if ((&EmptyArray == child) ||
-		    (&EmptyArray8 == child) ||
-		    (&EmptyArray16 == child) ||
-		    (&EmptyArray24 == child))
+		if (is_empty_child(child))
 		{
 			// Insert missing nodes
 			SparseArray * newsarray = calloc(1, sizeof(SparseArray));
@@ -192,10 +180,7 @@ PRIVATE SparseArray *SparseArrayCopy(SparseArray * sarray)
 		for (unsigned int i = 0 ; i<=MAX_INDEX(sarray); i++)
 		{
 			SparseArray *child = copy->data[i];
-			if (!(child == &EmptyArray ||
-			    child == &EmptyArray8 ||
-			    child == &EmptyArray16 ||
-			    child == &EmptyArray24))
+			if (!is_empty_child(child))
 			{
 				__sync_fetch_and_add(&child->refCount, 1);
 			}

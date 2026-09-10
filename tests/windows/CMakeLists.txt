@@ -49,6 +49,13 @@ add_mosaic_runtime_test(
 	fast_paths_contract.c)
 
 add_mosaic_runtime_test(
+	mosaic_objc_sarray_contract
+	sarray_contract.c)
+target_include_directories(mosaic_objc_sarray_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/dispatch"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/support")
+
+add_mosaic_runtime_test(
 	mosaic_objc_hash_table_contract
 	hash_table_contract.c)
 target_include_directories(mosaic_objc_hash_table_contract PRIVATE
