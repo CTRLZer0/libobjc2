@@ -2,8 +2,16 @@
 #pragma clang system_header
 #endif
 
-#if !defined(__GNUSTEP_LIBOBJC_RUNTIME_DEPRECATED_INCLUDED__) && !defined(GNUSTEP_LIBOBJC_NO_LEGACY)
-#	define __GNUSTEP_LIBOBJC_RUNTIME_DEPRECATED_INCLUDED__
+#ifndef __GNUSTEP_LIBOBJC_RUNTIME_DEPRECATED_INCLUDED__
+#define __GNUSTEP_LIBOBJC_RUNTIME_DEPRECATED_INCLUDED__
+
+#include "runtime-types.h"
+
+#ifndef GNUSTEP_LIBOBJC_NO_LEGACY
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * Legacy GNU runtime compatibility.
@@ -100,4 +108,10 @@ OBJC_PUBLIC
 __attribute__((deprecated))
 BOOL sel_eq(SEL s1, SEL s2);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // GNUSTEP_LIBOBJC_NO_LEGACY
+
+#endif // __GNUSTEP_LIBOBJC_RUNTIME_DEPRECATED_INCLUDED__

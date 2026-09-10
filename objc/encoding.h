@@ -7,6 +7,7 @@
 #define __LIBOBJC_ENCODING_H_INCLUDED__
 
 #include "runtime-types.h"
+#include "runtime-encoding.h"
 
 #ifdef __cplusplus
 extern "C" {

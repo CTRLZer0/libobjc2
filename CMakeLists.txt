@@ -119,6 +119,8 @@ set(libobjc_HDRS
 	objc/runtime-association.h
 	objc/runtime-class.h
 	objc/runtime-dispatch.h
+	objc/runtime-compiler.h
+	objc/runtime-encoding.h
 	objc/runtime-small-object.h
 	objc/runtime-block.h
 	objc/runtime-object.h

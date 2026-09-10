@@ -8,6 +8,7 @@ file(MAKE_DIRECTORY "${OUT_DIR}")
 set(headers
 	runtime-types.h runtime-selector.h runtime-property.h runtime-protocol.h
 	runtime-association.h runtime-dispatch.h runtime-small-object.h runtime-block.h
+	runtime-compiler.h runtime-encoding.h runtime-deprecated.h
 	runtime-class.h runtime-object.h
 	runtime-ivar.h runtime-method.h runtime.h message.h slot.h
 	objc-arc.h objc-auto.h encoding.h hooks.h
