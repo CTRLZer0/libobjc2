@@ -89,13 +89,31 @@ static int class_hash(const Class class)
 static class_table_internal_table *class_table;
 
 static uint64_t class_table_generation = 1;
-enum { CLASS_LOOKUP_CACHE_SIZE = 16 };
+// A small 2-way TLS cache avoids pointer-layout collision cliffs while keeping
+// repeated class-name lookup allocation-free and independent between threads.
+enum
+{
+	CLASS_LOOKUP_CACHE_WAYS = 2,
+	CLASS_LOOKUP_CACHE_SETS = 16
+};
+_Static_assert((CLASS_LOOKUP_CACHE_SETS & (CLASS_LOOKUP_CACHE_SETS - 1)) == 0,
+	"class lookup cache set count must be a power of two");
 static __thread struct
 {
 	uint64_t generation;
-	const char *keys[CLASS_LOOKUP_CACHE_SIZE];
-	Class entries[CLASS_LOOKUP_CACHE_SIZE];
+	const char *keys[CLASS_LOOKUP_CACHE_SETS][CLASS_LOOKUP_CACHE_WAYS];
+	Class entries[CLASS_LOOKUP_CACHE_SETS][CLASS_LOOKUP_CACHE_WAYS];
+	unsigned char victim[CLASS_LOOKUP_CACHE_SETS];
 } class_lookup_cache;
+
+static inline unsigned class_lookup_cache_set(const char *name)
+{
+	uintptr_t key = (uintptr_t)name >> 4;
+	key ^= key >> 16;
+	key *= (uintptr_t)0x9e3779b1u;
+	key ^= key >> 13;
+	return (unsigned)(key & (CLASS_LOOKUP_CACHE_SETS - 1));
+}
 
 static inline void class_table_invalidate_cache(void)
 {
@@ -151,18 +169,35 @@ PRIVATE Class class_table_get_safe(const char *class_name)
 	{
 		memset(class_lookup_cache.keys, 0, sizeof(class_lookup_cache.keys));
 		memset(class_lookup_cache.entries, 0, sizeof(class_lookup_cache.entries));
+		memset(class_lookup_cache.victim, 0, sizeof(class_lookup_cache.victim));
 		class_lookup_cache.generation = generation;
 	}
-	uintptr_t key = (uintptr_t)class_name;
-	unsigned slot = (unsigned)(((key >> 4) ^ (key >> 9)) & (CLASS_LOOKUP_CACHE_SIZE - 1));
-	Class cached = class_lookup_cache.entries[slot];
-	if ((cached != Nil) && (class_lookup_cache.keys[slot] == class_name) &&
-	    string_compare(class_name, cached->name)) { return cached; }
+	const unsigned set = class_lookup_cache_set(class_name);
+	for (unsigned way = 0; way < CLASS_LOOKUP_CACHE_WAYS; ++way)
+	{
+		Class cached = class_lookup_cache.entries[set][way];
+		if ((cached != Nil) && (class_lookup_cache.keys[set][way] == class_name) &&
+		    string_compare(class_name, cached->name))
+		{
+			class_lookup_cache.victim[set] = (unsigned char)(way ^ 1u);
+			return cached;
+		}
+	}
 	Class cls = class_table_internal_table_get(class_table, class_name);
 	if (cls != Nil)
 	{
-		class_lookup_cache.keys[slot] = class_name;
-		class_lookup_cache.entries[slot] = cls;
+		unsigned way = class_lookup_cache.victim[set];
+		for (unsigned candidate = 0; candidate < CLASS_LOOKUP_CACHE_WAYS; ++candidate)
+		{
+			if (class_lookup_cache.entries[set][candidate] == Nil)
+			{
+				way = candidate;
+				break;
+			}
+		}
+		class_lookup_cache.keys[set][way] = class_name;
+		class_lookup_cache.entries[set][way] = cls;
+		class_lookup_cache.victim[set] = (unsigned char)(way ^ 1u);
 	}
 	return cls;
 }
