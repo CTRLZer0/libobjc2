@@ -245,128 +245,100 @@ BOOL class_addProtocol(Class cls, Protocol *protocol)
 
 Ivar * class_copyIvarList(Class cls, unsigned int *outCount)
 {
-    if (outCount != NULL)
-    {
-        *outCount = 0x0;
-    }
-
+	if (outCount != NULL) { *outCount = 0; }
 	CHECK_ARG(cls);
-	struct objc_ivar_list *ivarlist = NULL;
-	unsigned int count = 0;
-	unsigned int index;
-	Ivar *list;
+	struct objc_ivar_list *ivarlist = cls->ivars;
+	if ((ivarlist == NULL) || (ivarlist->count <= 0)) { return NULL; }
 
-	if (Nil != cls)
-	{
-		ivarlist = cls->ivars;
-	}
-	if (ivarlist != NULL)
-	{
-		count = ivarlist->count;
-	}
-	if (outCount != NULL)
-	{
-		*outCount = count;
-	}
-	if (count == 0)
+	size_t count = (size_t)ivarlist->count;
+	if (count > UINT_MAX) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(0, count + 1, sizeof(Ivar), &allocationSize))
 	{
 		return NULL;
 	}
-
-	list = malloc((count + 1) * sizeof(struct objc_ivar *));
-	list[count] = NULL;
-	count = 0;
-	for (index = 0; index < ivarlist->count; index++)
+	Ivar *list = malloc(allocationSize);
+	if (list == NULL) { return NULL; }
+	for (size_t index = 0; index < count; index++)
 	{
-		list[count++] = ivar_at_index(ivarlist, index);
+		list[index] = ivar_at_index(ivarlist, (int)index);
 	}
-
+	list[count] = NULL;
+	if (outCount != NULL) { *outCount = (unsigned int)count; }
 	return list;
 }
 
 Method * class_copyMethodList(Class cls, unsigned int *outCount)
 {
-    if (outCount != NULL)
-    {
-        *outCount = 0x0;
-    }
-
+	if (outCount != NULL) { *outCount = 0; }
 	CHECK_ARG(cls);
-	unsigned int count = 0;
-	Method *list;
-	struct objc_method_list *methods;
 
-	if (cls != NULL)
+	size_t count = 0;
+	for (struct objc_method_list *methods = cls->methods; methods != NULL; methods = methods->next)
 	{
-		for (methods = cls->methods; methods != NULL; methods = methods->next)
-		{
-			count += methods->count;
-		}
+		if (methods->count < 0) { return NULL; }
+		size_t nodeCount = (size_t)methods->count;
+		if (nodeCount > UINT_MAX - count) { return NULL; }
+		count += nodeCount;
 	}
+	if (count == 0) { return NULL; }
 
-	if (outCount != NULL)
-	{
-		*outCount = count;
-	}
-
-	if (count == 0)
+	size_t allocationSize;
+	if ((count == SIZE_MAX) ||
+	    !objc2_flexible_array_size(0, count + 1, sizeof(Method), &allocationSize))
 	{
 		return NULL;
 	}
-
-	list = malloc((count + 1) * sizeof(struct objc_method *));
-	list[count] = NULL;
-	count = 0;
-	for (methods = cls->methods; methods != NULL; methods = methods->next)
+	Method *list = malloc(allocationSize);
+	if (list == NULL) { return NULL; }
+	size_t out = 0;
+	for (struct objc_method_list *methods = cls->methods; methods != NULL; methods = methods->next)
 	{
-		unsigned int	index;
-		for (index = 0; index < methods->count; index++)
+		for (int index = 0; index < methods->count; index++)
 		{
-			list[count++] = method_at_index(methods, index);
+			list[out++] = method_at_index(methods, index);
 		}
 	}
-
+	list[out] = NULL;
+	if (outCount != NULL) { *outCount = (unsigned int)out; }
 	return list;
 }
 
 Protocol*__unsafe_unretained* class_copyProtocolList(Class cls, unsigned int *outCount)
 {
-    if (outCount != NULL)
-    {
-        *outCount = 0x0;
-    }
-
+	if (outCount != NULL) { *outCount = 0; }
 	CHECK_ARG(cls);
-	struct objc_protocol_list *protocolList = NULL;
-	struct objc_protocol_list *list;
-	unsigned int count = 0;
-	Protocol **protocols;
 
-	if (Nil != cls)
+	size_t count = 0;
+	for (struct objc_protocol_list *node = cls->protocols; node != NULL; node = node->next)
 	{
-		protocolList = cls->protocols;
+		if ((node->count > UINT_MAX) || (node->count > UINT_MAX - count))
+		{
+			return NULL;
+		}
+		count += node->count;
 	}
-	for (list = protocolList; list != NULL; list = list->next)
-	{
-		count += list->count;
-	}
-	if (outCount != NULL)
-	{
-		*outCount = count;
-	}
-	if (count == 0)
+	if (count == 0) { return NULL; }
+
+	size_t allocationSize;
+	if ((count == SIZE_MAX) ||
+	    !objc2_flexible_array_size(0, count + 1, sizeof(Protocol *), &allocationSize))
 	{
 		return NULL;
 	}
-
-	protocols = malloc((count + 1) * sizeof(Protocol *));
-	protocols[count] = NULL;
-	count = 0;
-	for (list = protocolList; list != NULL; list = list->next)
+	Protocol **protocols = malloc(allocationSize);
+	if (protocols == NULL) { return NULL; }
+	size_t out = 0;
+	for (struct objc_protocol_list *node = cls->protocols; node != NULL; node = node->next)
 	{
-		memcpy(&protocols[count], list->list, list->count * sizeof(Protocol *));
-		count += list->count;
+		if (node->count != 0)
+		{
+			memcpy(&protocols[out], node->list, node->count * sizeof(Protocol *));
+			out += node->count;
+		}
 	}
+	protocols[out] = NULL;
+	if (outCount != NULL) { *outCount = (unsigned int)out; }
 	return protocols;
 }
 
