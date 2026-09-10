@@ -331,7 +331,9 @@ public:
 	 */
 	void increment()
 	{
-		uintptr_t old = word->fetch_add(1, std::memory_order_acq_rel);
+		// Retaining does not publish object state.  Lifetime is protected by
+		// atomic modification order; the final release provides release/acquire.
+		uintptr_t old = word->fetch_add(1, std::memory_order_relaxed);
 		if (UNLIKELY((old & count_mask) >= count_max))
 		{
 			// Saturated (unreachable for any real object: it needs 2^62 live
@@ -374,12 +376,12 @@ public:
 				return true;
 			}
 			uintptr_t updated = (count + 1) | (v & weak_flag);
-			// Acquire/release on the exchange so reference-count updates are
-			// ordered against each other on weakly-ordered targets.  On a failed
-			// exchange `v` is refreshed with the current value.
+			// Atomic modification order is sufficient for the lifetime transition:
+			// the weak slot / stripe lock already acquires object publication, and
+			// the competing final decrement is an atomic operation on this word.
 			if (word->compare_exchange_weak(v, updated,
-			                                std::memory_order_acq_rel,
-			                                std::memory_order_acquire))
+			                                std::memory_order_relaxed,
+			                                std::memory_order_relaxed))
 			{
 				return true;
 			}
