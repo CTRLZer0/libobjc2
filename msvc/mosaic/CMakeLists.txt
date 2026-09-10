@@ -143,6 +143,7 @@ target_link_libraries(mosaic_objc_runtime INTERFACE mosaic_objc_runtime_archive 
 target_compile_definitions(mosaic_objc_runtime INTERFACE __OBJC_RUNTIME_STATIC__=1)
 target_include_directories(mosaic_objc_runtime INTERFACE
     "${MOSAIC_LIBOBJC2_ROOT}"
+    "${_runtime_dir}"
     "${_runtime_dir}/objc")
 add_library(Mosaic::ObjCRuntime ALIAS mosaic_objc_runtime)
 include(CTest)

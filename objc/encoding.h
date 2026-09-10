@@ -7,7 +7,7 @@
 #define __LIBOBJC_ENCODING_H_INCLUDED__
 
 #include "runtime-types.h"
-#include "runtime-encoding.h"
+#include "runtime/encoding.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +36,7 @@ OBJC_PUBLIC
 size_t objc_promoted_size(const char *type);
 
 // Method metadata APIs historically exposed by this header.
-#include "runtime-method.h"
+#include "runtime/method.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // Deprecated functions - do not use functions below this line in new code.

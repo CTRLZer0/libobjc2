@@ -4,8 +4,16 @@ if(NOT ROOT OR NOT RUNTIME_INCLUDE OR NOT CLANG OR NOT CLANGXX OR NOT OUT_DIR)
 	message(FATAL_ERROR "header contract is missing configuration")
 endif()
 
+# RUNTIME_INCLUDE points at the generated .../objc directory.  Add its parent
+# so canonical headers can use the same <objc/...> paths in build and install trees.
+get_filename_component(RUNTIME_ROOT "${RUNTIME_INCLUDE}" DIRECTORY)
+
 file(MAKE_DIRECTORY "${OUT_DIR}")
 set(headers
+	runtime/types.h runtime/selector.h runtime/property.h runtime/protocol.h
+	runtime/association.h runtime/dispatch.h runtime/small-object.h runtime/block.h
+	runtime/compiler.h runtime/encoding.h runtime/class.h runtime/object.h
+	runtime/ivar.h runtime/method.h compat/runtime-deprecated.h
 	runtime-types.h runtime-selector.h runtime-property.h runtime-protocol.h
 	runtime-association.h runtime-dispatch.h runtime-small-object.h runtime-block.h
 	runtime-compiler.h runtime-encoding.h runtime-deprecated.h
@@ -32,7 +40,7 @@ foreach(header IN LISTS headers)
 		execute_process(
 			COMMAND "${compiler}" -fsyntax-only -Wall -Wextra -Werror
 				-D__OBJC_RUNTIME_STATIC__=1
-				"-I${ROOT}" "-I${RUNTIME_INCLUDE}" "${source}"
+				"-I${ROOT}" "-I${RUNTIME_ROOT}" "-I${RUNTIME_INCLUDE}" "${source}"
 			RESULT_VARIABLE result
 			OUTPUT_VARIABLE output
 			ERROR_VARIABLE error)

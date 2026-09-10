@@ -135,6 +135,25 @@ set(libobjc_HDRS
 	objc/slot.h
 	${PROJECT_BINARY_DIR}/objc/objc-config.h)
 
+set(libobjc_RUNTIME_HDRS
+	objc/runtime/types.h
+	objc/runtime/selector.h
+	objc/runtime/property.h
+	objc/runtime/protocol.h
+	objc/runtime/association.h
+	objc/runtime/class.h
+	objc/runtime/object.h
+	objc/runtime/ivar.h
+	objc/runtime/method.h
+	objc/runtime/dispatch.h
+	objc/runtime/small-object.h
+	objc/runtime/block.h
+	objc/runtime/compiler.h
+	objc/runtime/encoding.h)
+
+set(libobjc_COMPAT_HDRS
+	objc/compat/runtime-deprecated.h)
+
 set(libobjc_CXX_SRCS
 	src/dispatch/selector_table.cc
 	)
@@ -197,6 +216,7 @@ set(LIBOBJC2_PRIVATE_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/support")
 include_directories(
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${PROJECT_BINARY_DIR}"
     "${PROJECT_BINARY_DIR}/objc/"
     ${LIBOBJC2_PRIVATE_INCLUDE_DIRS})
 
@@ -360,6 +380,7 @@ if (BUILD_STATIC_LIBOBJC)
 		objc-static
 		INTERFACE
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
 		$<INSTALL_INTERFACE:include>)
 	set(_libobjc_static_output_name ${LIBOBJC_NAME})
 	if (WIN32 AND BUILD_SHARED_LIBOBJC)
@@ -450,6 +471,7 @@ if (BUILD_SHARED_LIBOBJC)
 		objc
 		INTERFACE
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+		$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
 		$<INSTALL_INTERFACE:include>)
 endif ()
 install(TARGETS ${INSTALL_TARGETS}
@@ -460,6 +482,10 @@ install(TARGETS ${INSTALL_TARGETS}
 
 install(FILES ${libobjc_HDRS}
 	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}")
+install(FILES ${libobjc_RUNTIME_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/runtime")
+install(FILES ${libobjc_COMPAT_HDRS}
+	DESTINATION "${HEADER_INSTALL_PATH}/${INCLUDE_DIRECTORY}/compat")
 
 if (EMBEDDED_BLOCKS_RUNTIME)
 	install(FILES ${libBlocksRuntime_COMPATIBILITY_HDRS}
