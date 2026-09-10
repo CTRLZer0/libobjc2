@@ -65,6 +65,25 @@ int main(void)
 	CHECK(objc_getAssociatedObject(holder, &key) == nil);
 	CHECK(releases == 3);
 
+	static char fast_key;
+	Class fast = objc_allocateClassPair(Nil, "MosaicFastAssociatedContract", 0);
+	CHECK(fast != Nil);
+	objc_registerClassPair(fast);
+	id fast_holder = class_createInstance(fast, 0);
+	CHECK(fast_holder != nil);
+	objc_setAssociatedObject(fast_holder, &fast_key, value, OBJC_ASSOCIATION_ASSIGN);
+	CHECK(object_getClass(fast_holder) == fast);
+	CHECK(objc_retain(fast_holder) == fast_holder);
+	objc_release(fast_holder);
+	id fast_weak = nil;
+	CHECK(objc_initWeak(&fast_weak, fast_holder) == fast_holder);
+	id fast_loaded = objc_loadWeakRetained(&fast_weak);
+	CHECK(fast_loaded == fast_holder);
+	objc_release(fast_loaded);
+	objc_destroyWeak(&fast_weak);
+	objc_removeAssociatedObjects(fast_holder);
+	object_dispose(fast_holder);
+
 	object_dispose(value);
 	object_dispose(holder);
 	return 0;

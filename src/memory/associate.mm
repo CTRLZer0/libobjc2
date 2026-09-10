@@ -198,6 +198,10 @@ static inline Class findHiddenClass(id obj)
 
 static Class allocateHiddenClass(Class superclass)
 {
+	checkARCAccessorsSlow(superclass);
+	const unsigned long lifetimeFlags = superclass->info &
+		(objc_class_flag_fast_arc | objc_class_flag_permanent_instances |
+		 objc_class_flag_is_block);
 	struct objc_class *newClass =
 		allocate_zeroed<struct objc_class>(sizeof(struct reference_list));
 
@@ -211,7 +215,7 @@ static Class allocateHiddenClass(Class superclass)
 	// static int count;
 	//asprintf(&newClass->name, "%s%d", superclass->name, count++);
 	newClass->info = objc_class_flag_resolved | objc_class_flag_user_created |
-		objc_class_flag_hidden_class | objc_class_flag_assoc_class;
+		objc_class_flag_hidden_class | objc_class_flag_assoc_class | lifetimeFlags;
 	newClass->super_class = superclass;
 	newClass->dtable = uninstalled_dtable;
 	newClass->instance_size = superclass->instance_size;

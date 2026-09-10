@@ -15,6 +15,7 @@ static unsigned weak_load_calls;
 static unsigned weak_load_reentries;
 static unsigned manual_retains;
 static int inside_weak_load;
+static int reject_weak_load;
 
 static id manual_retain(id self, SEL _cmd)
 {
@@ -32,6 +33,7 @@ static void manual_release(id self, SEL _cmd)
 static id weak_load(id object)
 {
 	weak_load_calls++;
+	if (reject_weak_load) { return nil; }
 	if (!inside_weak_load && secondary_weak != nil)
 	{
 		inside_weak_load = 1;
@@ -74,8 +76,15 @@ int main(void)
 
 	id manual_object = class_createInstance(manual, 0);
 	id primary_weak = nil;
+	id rejected_weak = nil;
 	secondary_weak = nil;
 	CHECK(manual_object != nil);
+	reject_weak_load = 1;
+	CHECK(objc_initWeak(&rejected_weak, manual_object) == nil);
+	CHECK(rejected_weak == nil);
+	CHECK(objc_storeWeak(&rejected_weak, manual_object) == nil);
+	CHECK(rejected_weak == nil);
+	reject_weak_load = 0;
 	CHECK(objc_initWeak(&primary_weak, manual_object) == manual_object);
 	CHECK(objc_initWeak(&secondary_weak, manual_object) == manual_object);
 	id retained = objc_loadWeakRetained(&primary_weak);

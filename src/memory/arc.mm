@@ -1053,17 +1053,16 @@ public:
 		}
 	}
 
-	// As withSlotLocked, but also locks the stripe owning `newObj` (storeWeak
-	// touches the slot's current target and the new object).
+	// As withSlotLocked, but also locks `newShard` when the incoming target
+	// requires a weak control block.  Persistent / tagged targets pass NONE.
 	template<typename Fn>
-	auto withStoreLocked(id *slot, id newObj, Fn &&fn) -> decltype(fn((WeakRef*)nullptr, (id)nil))
+	auto withStoreLocked(id *slot, size_t newShard, Fn &&fn) -> decltype(fn((WeakRef*)nullptr, (id)nil))
 	{
-		size_t sNew = newObj ? indexFor(newObj) : NONE;
 		for (;;)
 		{
 			id raw = weakSlotLoad(slot);
 			WeakRef *peek = asWeakRef(raw);
-			Guard g(*this, peek ? peek->shardIndex : NONE, sNew);
+			Guard g(*this, peek ? peek->shardIndex : NONE, newShard);
 			if (weakSlotLoad(slot) != raw)
 			{
 				continue;
@@ -1180,71 +1179,102 @@ PRIVATE extern "C" void init_arc(void)
 
 extern "C" void* block_load_weak(void *block);
 
-static BOOL setObjectHasWeakRefs(id obj)
+enum class WeakTargetKind : unsigned char
 {
-	BOOL isGlobalObject = isPersistentObject(obj);
-	Class cls = isGlobalObject ? Nil : obj->isa;
-	if (obj && cls && objc_test_class_flag(cls, objc_class_flag_fast_arc))
+	Persistent,
+	Block,
+	FastARC,
+	Manual
+};
+
+struct WeakTargetInfo
+{
+	Class cls;
+	WeakTargetKind kind;
+};
+
+static inline WeakTargetInfo classifyWeakTarget(id obj)
+{
+	if ((obj == nil) || isSmallObject(obj))
 	{
-		// We hold the owning stripe lock, so a thread racing to deallocate waits
-		// if we win the update.
+		return { Nil, WeakTargetKind::Persistent };
+	}
+	Class cls = obj->isa;
+	const unsigned long info = cls->info;
+	if ((info & objc_class_flag_permanent_instances) != 0)
+	{
+		return { cls, WeakTargetKind::Persistent };
+	}
+	if ((info & objc_class_flag_is_block) != 0)
+	{
+		return { cls, WeakTargetKind::Block };
+	}
+	if ((info & objc_class_flag_fast_arc) != 0)
+	{
+		return { cls, WeakTargetKind::FastARC };
+	}
+	return { cls, WeakTargetKind::Manual };
+}
+
+static inline void markWeakTarget(id obj, const WeakTargetInfo &target)
+{
+	if (target.kind == WeakTargetKind::FastARC)
+	{
+		// The owning stripe is held, so a racing final release cannot pass
+		// weak cleanup until the monotonic weak-reference bit is visible.
 		RefCount::fromObject(obj).markWeaklyReferenced();
 	}
-	return isGlobalObject;
 }
 
 extern "C" OBJC_PUBLIC id objc_storeWeak(id *addr, id obj)
 {
 	auto &t = weakTable();
-	return t.withStoreLocked(addr, obj, [&](WeakRef *oldRef, id raw) -> id {
-		// Both stripe locks are held, so oldRef, oldRef->obj and the slot are stable.
+	const WeakTargetInfo target = classifyWeakTarget(obj);
+	const size_t newShard = (target.kind == WeakTargetKind::Persistent)
+		? weak_table_t::NONE : t.shardOf(obj);
+	return t.withStoreLocked(addr, newShard, [&](WeakRef *oldRef, id raw) -> id {
+		// Both relevant stripe locks are held, so oldRef, oldRef->obj and the slot are stable.
 		id old = oldRef ? oldRef->obj : raw;
-		// If the old and new values are the same, then we don't need to do
-		// anything unless we are deleting the weak reference by storing NULL.
 		if ((old == obj) && ((obj != NULL) || (NULL == oldRef)))
 		{
 			return obj;
 		}
-		BOOL isGlobalObject = setObjectHasWeakRefs(obj);
-		// If an old ref exists, decrement its reference count.  This may also
-		// recycle the weak reference control block.
+		markWeakTarget(obj, target);
 		if (oldRef != NULL)
 		{
 			t.release(oldRef);
 		}
-		// If we're storing nil, then just write a null pointer.
 		if (nil == obj)
 		{
-			weakSlotStore(addr, obj);
+			weakSlotStore(addr, nil);
 			return nil;
 		}
-		if (isGlobalObject)
+		if (target.kind == WeakTargetKind::Persistent)
 		{
-			// A global object is never deallocated, so secretly make this a
-			// strong reference.
 			weakSlotStore(addr, obj);
 			return obj;
 		}
-		Class cls = classForObject(obj);
-		if (UNLIKELY(objc_test_class_flag(cls, objc_class_flag_is_block)))
+		if (target.kind == WeakTargetKind::Block)
 		{
-			// Check whether the block is being deallocated and return nil if so
 			if (_Block_isDeallocating(obj))
 			{
 				weakSlotStore(addr, nil);
 				return nil;
 			}
 		}
-		else if (object_getRetainCount_np(obj) == 0)
+		else if ((target.kind == WeakTargetKind::FastARC) &&
+		         RefCount::fromObject(obj).isDeallocating())
 		{
-			// If the object is being deallocated return nil.
 			weakSlotStore(addr, nil);
 			return nil;
 		}
-		if (nil != obj)
+		else if ((target.kind == WeakTargetKind::Manual) &&
+		         (_objc_weak_load(obj) == nil))
 		{
-			weakSlotStore(addr, (id)t.increment(obj));
+			weakSlotStore(addr, nil);
+			return nil;
 		}
+		weakSlotStore(addr, (id)t.increment(obj));
 		return obj;
 	});
 }
@@ -1381,30 +1411,32 @@ extern "C" OBJC_PUBLIC void objc_destroyWeak(id* obj)
 
 extern "C" OBJC_PUBLIC id objc_initWeak(id *addr, id obj)
 {
-	if (obj == nil)
+	const WeakTargetInfo target = classifyWeakTarget(obj);
+	if (target.kind == WeakTargetKind::Persistent)
 	{
-		weakSlotStore(addr, nil);
-		return nil;
-	}
-	auto &t = weakTable();
-	typename weak_table_t::Guard guard(t, t.shardOf(obj));
-	BOOL isGlobalObject = setObjectHasWeakRefs(obj);
-	if (isGlobalObject)
-	{
-		// A global object is never deallocated, so secretly make this a strong
-		// reference.
 		weakSlotStore(addr, obj);
 		return obj;
 	}
-	// If the object is being deallocated return nil.
-	if (object_getRetainCount_np(obj) == 0)
+	auto &t = weakTable();
+	typename weak_table_t::Guard guard(t, t.shardOf(obj));
+	markWeakTarget(obj, target);
+	if ((target.kind == WeakTargetKind::Block) && _Block_isDeallocating(obj))
 	{
 		weakSlotStore(addr, nil);
 		return nil;
 	}
-	if (nil != obj)
+	if ((target.kind == WeakTargetKind::FastARC) &&
+	    RefCount::fromObject(obj).isDeallocating())
 	{
-		weakSlotStore(addr, (id)t.increment(obj));
+		weakSlotStore(addr, nil);
+		return nil;
 	}
+	if ((target.kind == WeakTargetKind::Manual) &&
+	    (_objc_weak_load(obj) == nil))
+	{
+		weakSlotStore(addr, nil);
+		return nil;
+	}
+	weakSlotStore(addr, (id)t.increment(obj));
 	return obj;
 }
