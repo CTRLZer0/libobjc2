@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml/badge.svg)](https://github.com/CTRLZer0/libobjc2/actions/workflows/ci.yml)
 
-CTRLZer0 libobjc2 is a modern Objective-C runtime maintained for portable
+libobjc2 is a modern Objective-C runtime maintained for portable
 runtime work and for the Mosaic compatibility environment, with first-class
 Windows support and LLVM 23 as the current compiler baseline.
 
