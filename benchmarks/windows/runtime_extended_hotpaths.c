@@ -102,6 +102,7 @@ int main(int argc, char **argv)
     }
     objc_setAssociatedObject(object, &association_key, value, OBJC_ASSOCIATION_ASSIGN);
     id weak = nil;
+    id weak_nil = nil;
     if (objc_initWeak(&weak, object) != object) { return 7; }
 
     LARGE_INTEGER frequency, start, end;
@@ -193,6 +194,14 @@ int main(int argc, char **argv)
     }
     QueryPerformanceCounter(&end);
     report("associated object get", iterations, elapsed_ns(start, end, frequency));
+    QueryPerformanceCounter(&start);
+    for (uint64_t i = 0; i < iterations; ++i)
+    {
+        sink += (uintptr_t)objc_loadWeakRetained(&weak_nil);
+    }
+    QueryPerformanceCounter(&end);
+    report("weak load nil", iterations, elapsed_ns(start, end, frequency));
+
     QueryPerformanceCounter(&start);
     for (uint64_t i = 0; i < iterations; ++i)
     {

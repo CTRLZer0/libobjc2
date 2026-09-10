@@ -1036,7 +1036,13 @@ public:
 		{
 			id raw = weakSlotLoad(slot);
 			WeakRef *peek = asWeakRef(raw);
-			Guard g(*this, peek ? peek->shardIndex : NONE);
+			if (LIKELY(peek == nullptr))
+			{
+				// No control block means nil or a non-deallocatable direct value.
+				// The acquire load above is itself a valid linearization point.
+				return fn(nullptr, raw);
+			}
+			Guard g(*this, peek->shardIndex);
 			if (weakSlotLoad(slot) != raw)
 			{
 				continue;
