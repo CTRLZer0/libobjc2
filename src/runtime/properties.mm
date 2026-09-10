@@ -3,11 +3,13 @@
 #include "crt_compat.h"
 #include <stdio.h>
 #include <assert.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include "class.h"
 #include "properties.h"
 #include "spinlock.h"
+#include "allocation.h"
 #include "helpers.hh"
 #include "visibility.h"
 #include "nsobject.h"
@@ -222,7 +224,7 @@ void objc_setPropertyStruct(void *dest,
 OBJC_PUBLIC
 objc_property_t class_getProperty(Class cls, const char *name)
 {
-	if (Nil == cls)
+	if ((Nil == cls) || (name == NULL))
 	{
 		return NULL;
 	}
@@ -259,17 +261,27 @@ objc_property_t* class_copyPropertyList(Class cls, unsigned int *outCount)
 	unsigned int count = 0;
 	for (struct objc_property_list *l=properties ; NULL!=l ; l=l->next)
 	{
-		count += l->count;
-	}
-	if (NULL != outCount)
-	{
-		*outCount = count;
+		if (l->count <= 0) { continue; }
+		unsigned int nodeCount = (unsigned int)l->count;
+		if (nodeCount > UINT_MAX - count)
+		{
+			if (NULL != outCount) { *outCount = 0; }
+			return NULL;
+		}
+		count += nodeCount;
 	}
 	if (0 == count)
 	{
+		if (NULL != outCount) { *outCount = 0; }
 		return NULL;
 	}
 	objc_property_t *list = allocate_zeroed_array<objc_property_t>(count);
+	if (list == NULL)
+	{
+		if (NULL != outCount) { *outCount = 0; }
+		return NULL;
+	}
+	if (NULL != outCount) { *outCount = count; }
 	unsigned int out = 0;
 	for (struct objc_property_list *l=properties ; NULL!=l ; l=l->next)
 	{
@@ -357,9 +369,22 @@ objc_property_attribute_t *property_copyAttributeList(objc_property_t property,
 	// the compiler didn't provide a type encoding string, then this will
 	// create a best-effort one.
 	const char *attributes = property_getAttributes(property);
-	for (int i=strlen(types)+1 ; attributes[i] != 0 ; i++)
+	if (attributes == NULL)
 	{
-		assert(count<12);
+		if (count == 0)
+		{
+			if (NULL != outCount) { *outCount = 0; }
+			return NULL;
+		}
+	}
+	for (size_t i=(types == NULL ? 0 : strlen(types)+1) ;
+	     attributes != NULL && attributes[i] != 0 ; i++)
+	{
+		if (count >= (int)(sizeof(attrs) / sizeof(attrs[0])))
+		{
+			if (NULL != outCount) { *outCount = 0; }
+			return NULL;
+		}
 		if (attributes[i] == ',')
 		{
 			// Comma is never the last character in the string, so this should
@@ -408,11 +433,13 @@ objc_property_attribute_t *property_copyAttributeList(objc_property_t property,
 		count++;
 	}
 	objc_property_attribute_t *propAttrs = allocate_zeroed_array<objc_property_attribute_t>(count);
-	memcpy(propAttrs, attrs, count * sizeof(objc_property_attribute_t));
-	if (NULL != outCount)
+	if (propAttrs == NULL)
 	{
-		*outCount = count;
+		if (NULL != outCount) { *outCount = 0; }
+		return NULL;
 	}
+	memcpy(propAttrs, attrs, count * sizeof(objc_property_attribute_t));
+	if (NULL != outCount) { *outCount = count; }
 	return propAttrs;
 }
 
@@ -420,11 +447,12 @@ static const objc_property_attribute_t *findAttribute(char attr,
                                                       const objc_property_attribute_t *attributes,
                                                       unsigned int attributeCount)
 {
+	if (attributes == NULL) { return NULL; }
 	// This linear scan is N^2 in the worst case, but that's still probably
 	// cheaper than sorting the array because N<12
-	for (int i=0 ; i<attributeCount ; i++)
+	for (unsigned int i=0 ; i<attributeCount ; i++)
 	{
-		if (attributes[i].name[0] == attr)
+		if ((attributes[i].name != NULL) && (attributes[i].name[0] == attr))
 		{
 			return &attributes[i];
 		}
@@ -454,13 +482,20 @@ static char *addAttrIfExists(char a,
 static const char *encodingFromAttrs(const objc_property_attribute_t *attributes,
                                      unsigned int attributeCount)
 {
-	// Length of the attributes string (initially the number of keys and commas and trailing null)
-	size_t attributesSize = 2 * attributeCount;
-	for (int i=0 ; i<attributeCount ; i++)
+	if ((attributeCount != 0) && (attributes == NULL)) { return NULL; }
+	// Length of the attributes string (keys, commas, values, and trailing null).
+	size_t attributesSize;
+	if (!objc2_size_multiply((size_t)attributeCount, 2, &attributesSize))
+	{
+		return NULL;
+	}
+	for (unsigned int i=0 ; i<attributeCount ; i++)
 	{
 		if (attributes[i].value)
 		{
-			attributesSize += strlen(attributes[i].value);
+			size_t valueLength = strlen(attributes[i].value);
+			if (valueLength > SIZE_MAX - attributesSize) { return NULL; }
+			attributesSize += valueLength;
 		}
 	}
 	if (attributesSize == 0)
@@ -469,6 +504,7 @@ static const char *encodingFromAttrs(const objc_property_attribute_t *attributes
 	}
 
 	char *buffer = static_cast<char*>(malloc(attributesSize));
+	if (buffer == NULL) { return NULL; }
 
 	char *out = buffer;
 	out = addAttrIfExists('T', out, attributes, attributeCount);
@@ -481,7 +517,11 @@ static const char *encodingFromAttrs(const objc_property_attribute_t *attributes
 	out = addAttrIfExists('G', out, attributes, attributeCount);
 	out = addAttrIfExists('S', out, attributes, attributeCount);
 	out = addAttrIfExists('V', out, attributes, attributeCount);
-	assert(out != buffer);
+	if (out == buffer)
+	{
+		free(buffer);
+		return NULL;
+	}
 	out--;
 	*out = '\0';
 
@@ -497,13 +537,13 @@ PRIVATE struct objc_property propertyFromAttrs(const objc_property_attribute_t *
 	p.attributes = encodingFromAttrs(attributes, attributeCount);
 	p.type = NULL;
 	const objc_property_attribute_t *attr = findAttribute('T', attributes, attributeCount);
-	if (attr)
+	if ((attr != NULL) && (attr->value != NULL))
 	{
 		p.type = objc2_strdup(attr->value);
 	}
 	p.getter = NULL;
 	attr = findAttribute('G', attributes, attributeCount);
-	if (attr)
+	if ((attr != NULL) && (attr->value != NULL))
 	{
 		// TODO: We should be able to construct the full type encoding if we
 		// also have a type, but for now use an untyped selector.
@@ -511,13 +551,30 @@ PRIVATE struct objc_property propertyFromAttrs(const objc_property_attribute_t *
 	}
 	p.setter = NULL;
 	attr = findAttribute('S', attributes, attributeCount);
-	if (attr)
+	if ((attr != NULL) && (attr->value != NULL))
 	{
 		// TODO: We should be able to construct the full type encoding if we
 		// also have a type, but for now use an untyped selector.
 		p.setter = sel_registerName(attr->value);
 	}
 	return p;
+}
+
+static BOOL propertyConstructionFailed(const struct objc_property *property,
+                                       const objc_property_attribute_t *attributes,
+                                       unsigned int attributeCount)
+{
+	if (property->name == NULL) { return YES; }
+	if ((attributeCount != 0) && (property->attributes == NULL)) { return YES; }
+	const objc_property_attribute_t *type = findAttribute('T', attributes, attributeCount);
+	return (type != NULL) && (type->value != NULL) && (property->type == NULL);
+}
+
+static void freeConstructedProperty(struct objc_property *property)
+{
+	free((void*)property->name);
+	free((void*)property->attributes);
+	free((void*)property->type);
 }
 
 OBJC_PUBLIC
@@ -529,8 +586,18 @@ BOOL class_addProperty(Class cls,
 	if ((Nil == cls) || (NULL == name) || (class_getProperty(cls, name) != 0)) { return NO; }
 
 	struct objc_property p = propertyFromAttrs(attributes, attributeCount, name);
+	if (propertyConstructionFailed(&p, attributes, attributeCount))
+	{
+		freeConstructedProperty(&p);
+		return NO;
+	}
 
 	struct objc_property_list *l = allocate_zeroed<struct objc_property_list>(sizeof(struct objc_property));
+	if (l == NULL)
+	{
+		freeConstructedProperty(&p);
+		return NO;
+	}
 	l->count = 1;
 	l->size = sizeof(struct objc_property);
 	memcpy(&l->properties, &p, sizeof(struct objc_property));
@@ -554,6 +621,11 @@ void class_replaceProperty(Class cls,
 		return;
 	}
 	struct objc_property p = propertyFromAttrs(attributes, attributeCount, name);
+	if (propertyConstructionFailed(&p, attributes, attributeCount))
+	{
+		freeConstructedProperty(&p);
+		return;
+	}
 	LOCK_RUNTIME_FOR_SCOPE();
 	memcpy(old, &p, sizeof(struct objc_property));
 }
@@ -577,19 +649,25 @@ char *property_copyAttributeValue(objc_property_t property,
 		case '&':
 		case 'N':
 		{
-			return strchr(attributes, attributeName[0]) ? objc2_strdup("") : 0;
+			return (attributes != NULL && strchr(attributes, attributeName[0]))
+				? objc2_strdup("") : NULL;
 		}
 		case 'V':
 		{
-			return objc2_strdup(property_getIVar(property));
+			const char *ivar = property_getIVar(property);
+			return (ivar == NULL) ? NULL : objc2_strdup(ivar);
 		}
 		case 'S':
 		{
-			return objc2_strdup(sel_getName(property->setter));
+			if (property->setter == NULL) { return NULL; }
+			const char *setter = sel_getName(property->setter);
+			return (setter == NULL) ? NULL : objc2_strdup(setter);
 		}
 		case 'G':
 		{
-			return objc2_strdup(sel_getName(property->getter));
+			if (property->getter == NULL) { return NULL; }
+			const char *getter = sel_getName(property->getter);
+			return (getter == NULL) ? NULL : objc2_strdup(getter);
 		}
 	}
 	return 0;

@@ -5,6 +5,7 @@
  * and provenance details.
  */
 #include "test_support.h"
+#include <stdlib.h>
 #include <string.h>
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
@@ -25,6 +26,22 @@ int main(void)
 	objc_registerClassPair(cls);
 	CHECK((Class)objc_getClass("MosaicClassContract") == cls);
 	CHECK((Class)objc_getMetaClass("MosaicClassContract") == meta);
+	CHECK(class_getProperty(cls, NULL) == NULL);
+
+	objc_property_attribute_t propertyAttributes[] = {{"T", "i"}, {"N", ""}};
+	CHECK(class_addProperty(cls, "number", propertyAttributes, 2) == YES);
+	objc_property_t property = class_getProperty(cls, "number");
+	CHECK(property != NULL);
+	unsigned int attributeCount = 0;
+	objc_property_attribute_t *copiedAttributes =
+		property_copyAttributeList(property, &attributeCount);
+	CHECK(copiedAttributes != NULL && attributeCount == 2);
+	free(copiedAttributes);
+	char *type = property_copyAttributeValue(property, "T");
+	CHECK(type != NULL && strcmp(type, "i") == 0);
+	free(type);
+	CHECK(property_copyAttributeValue(property, "V") == NULL);
+	CHECK(class_addProperty(cls, "invalid", NULL, 1) == NO);
 
 	Class replacement = objc_allocateClassPair(Nil, "MosaicClassContractReplacement", 0);
 	CHECK(replacement != Nil);
