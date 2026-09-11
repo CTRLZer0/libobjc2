@@ -8,6 +8,9 @@
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
 
+/* Historical GNU runtime symbol retained for ABI compatibility. */
+id object_copy(id obj, size_t size);
+
 static unsigned long long answer(id self, SEL _cmd)
 {
     (void)self;
@@ -30,6 +33,14 @@ int main(void)
     if ((Class)objc_getClass("MosaicProbe") != cls) return 13;
     id obj = class_createInstance(cls, 0);
     if (!obj) return 14;
+
+    if (object_copy(nil, 0) != nil) return 17;
+    const size_t instance_size = class_getInstanceSize(cls);
+    if ((instance_size > 0) && (object_copy(obj, instance_size - 1) != nil)) return 18;
+    id copy = object_copy(obj, instance_size);
+    if (!copy) return 19;
+    if (object_getClass(copy) != cls) return 20;
+    object_dispose(copy);
 
     IMP imp = objc_msg_lookup(obj, sel);
     if (!imp) return 15;

@@ -373,9 +373,18 @@ id class_createInstance(Class cls, size_t extraBytes)
 
 id object_copy(id obj, size_t size)
 {
+	if (obj == nil) { return nil; }
 	Class cls = object_getClass(obj);
-	id cpy = class_createInstance(cls, size - class_getInstanceSize(cls));
-	memcpy(((char*)cpy + sizeof(id)), ((char*)obj + sizeof(id)), size - sizeof(id));
+	if (cls == Nil) { return nil; }
+	size_t instanceSize = class_getInstanceSize(cls);
+	if ((size < instanceSize) || (size < sizeof(id))) { return nil; }
+	id cpy = class_createInstance(cls, size - instanceSize);
+	if (cpy == nil) { return nil; }
+	if (size > sizeof(id))
+	{
+		memcpy(((char*)cpy + sizeof(id)), ((char*)obj + sizeof(id)),
+		       size - sizeof(id));
+	}
 	return cpy;
 }
 
