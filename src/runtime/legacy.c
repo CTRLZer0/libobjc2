@@ -10,8 +10,49 @@
 #include "protocol.h"
 #include "class.h"
 #include "loader.h"
+#include "allocation.h"
 
 PRIVATE size_t lengthOfTypeEncoding(const char *types);
+
+static void *legacy_calloc_flexible_or_abort(size_t headerSize, int count, size_t elementSize)
+{
+	if (count < 0) { abort(); }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(headerSize, (size_t)count, elementSize, &allocationSize))
+	{
+		abort();
+	}
+	void *allocation = calloc(1, allocationSize);
+	if (allocation == NULL) { abort(); }
+	return allocation;
+}
+
+static void *legacy_malloc_flexible_or_abort(size_t headerSize, int count, size_t elementSize)
+{
+	if (count < 0) { abort(); }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(headerSize, (size_t)count, elementSize, &allocationSize))
+	{
+		abort();
+	}
+	void *allocation = malloc(allocationSize);
+	if (allocation == NULL) { abort(); }
+	return allocation;
+}
+
+static void *legacy_malloc_or_abort(size_t size)
+{
+	void *allocation = malloc(size);
+	if (allocation == NULL) { abort(); }
+	return allocation;
+}
+
+static size_t legacy_size_add_or_abort(size_t left, size_t right)
+{
+	size_t result;
+	if (!objc2_size_add(left, right, &result)) { abort(); }
+	return result;
+}
 
 enum objc_class_flags_gsv1
 {
@@ -54,11 +95,11 @@ static objc_ivar_ownership ownershipForIvar(struct objc_class_gsv1 *cls, int idx
 	{
 		return ownership_unsafe;
 	}
-	if (objc_bitfield_test(cls->strong_pointers, idx))
+	if ((cls->strong_pointers != 0) && objc_bitfield_test(cls->strong_pointers, idx))
 	{
 		return ownership_strong;
 	}
-	if (objc_bitfield_test(cls->weak_pointers, idx))
+	if ((cls->weak_pointers != 0) && objc_bitfield_test(cls->weak_pointers, idx))
 	{
 		return ownership_weak;
 	}
@@ -68,40 +109,36 @@ static objc_ivar_ownership ownershipForIvar(struct objc_class_gsv1 *cls, int idx
 static struct objc_ivar_list *upgradeIvarList(struct objc_class_gsv1 *cls)
 {
 	struct objc_ivar_list_gcc *l = cls->ivars;
-	if (l == NULL)
-	{
-		return NULL;
-	}
-	struct objc_ivar_list *n = calloc(1, sizeof(struct objc_ivar_list) +
-			l->count*sizeof(struct objc_ivar));
+	if (l == NULL) { return NULL; }
+	struct objc_ivar_list *n = legacy_calloc_flexible_or_abort(
+		sizeof(struct objc_ivar_list), l->count, sizeof(struct objc_ivar));
 	n->size = sizeof(struct objc_ivar);
 	n->count = l->count;
+	BOOL usesNewABI = objc_test_class_flag_gsv1(cls, objc_class_flag_new_abi_gsv1);
+	if (usesNewABI && (l->count > 0) && (cls->ivar_offsets == NULL)) { abort(); }
 	for (int i=0 ; i<l->count ; i++)
 	{
 		BOOL isBitfield = NO;
-		int bitfieldSize = 0;
-		int nextOffset;
-		// Bitfields have the same offset, but should have their size set to
-		// the size of the bitfield.  We calculate the size of the bitfield by
-		// looking for the next ivar after the current one that has a different
-		// offset.
+		int64_t bitfieldSize = 0;
+		int64_t currentOffset = l->ivar_list[i].offset;
+		int64_t nextOffset;
 		if (i+1 < l->count)
 		{
 			nextOffset = l->ivar_list[i+1].offset;
-			if (l->ivar_list[i].offset == l->ivar_list[i+1].offset)
+			if (currentOffset == nextOffset)
 			{
 				isBitfield = YES;
 				for (int j=i+2 ; j<l->count ; j++)
 				{
-					if (l->ivar_list[i].offset != l->ivar_list[j].offset)
+					if (currentOffset != l->ivar_list[j].offset)
 					{
-						bitfieldSize = l->ivar_list[j].offset - l->ivar_list[i].offset;
+						bitfieldSize = (int64_t)l->ivar_list[j].offset - currentOffset;
 						break;
 					}
 				}
 				if (bitfieldSize == 0)
 				{
-					bitfieldSize = cls->instance_size - l->ivar_list[i].offset;
+					bitfieldSize = (int64_t)cls->instance_size - currentOffset;
 				}
 			}
 		}
@@ -109,16 +146,16 @@ static struct objc_ivar_list *upgradeIvarList(struct objc_class_gsv1 *cls)
 		{
 			nextOffset = cls->instance_size;
 		}
-		if (nextOffset < 0)
-		{
-			nextOffset = -nextOffset;
-		}
+		if (nextOffset < 0) { nextOffset = -nextOffset; }
+		int64_t size = nextOffset - currentOffset;
+		int64_t storedSize = isBitfield ? bitfieldSize : size;
+		if ((storedSize < 0) || ((uint64_t)storedSize > UINT32_MAX)) { abort(); }
+
 		const char *type = l->ivar_list[i].type;
-		int size = nextOffset - l->ivar_list[i].offset;
 		n->ivar_list[i].name = l->ivar_list[i].name;
 		n->ivar_list[i].type = type;
-		n->ivar_list[i].size = isBitfield ? bitfieldSize : size;
-		if (objc_test_class_flag_gsv1(cls, objc_class_flag_new_abi_gsv1))
+		n->ivar_list[i].size = (uint32_t)storedSize;
+		if (usesNewABI)
 		{
 			n->ivar_list[i].offset = cls->ivar_offsets[i];
 		}
@@ -126,10 +163,11 @@ static struct objc_ivar_list *upgradeIvarList(struct objc_class_gsv1 *cls)
 		{
 			n->ivar_list[i].offset = &l->ivar_list[i].offset;
 		}
-		ivarSetAlign(&n->ivar_list[i], ((type == NULL) || type[0] == 0) ? __alignof__(void*) : objc_alignof_type(type));
-		if (type[0] == '\0')
+		ivarSetAlign(&n->ivar_list[i], ((type == NULL) || type[0] == 0)
+			? __alignof__(void*) : objc_alignof_type(type));
+		if ((type != NULL) && (type[0] == '\0'))
 		{
-			ivarSetAlign(&n->ivar_list[i], size);
+			ivarSetAlign(&n->ivar_list[i], (size_t)storedSize);
 		}
 		ivarSetOwnership(&n->ivar_list[i], ownershipForIvar(cls, i));
 	}
@@ -138,28 +176,26 @@ static struct objc_ivar_list *upgradeIvarList(struct objc_class_gsv1 *cls)
 
 static struct objc_method_list *upgradeMethodList(struct objc_method_list_gcc *old)
 {
-	if (old == NULL)
+	struct objc_method_list *head = NULL;
+	struct objc_method_list **tail = &head;
+	while ((old != NULL) && (old->count != 0))
 	{
-		return NULL;
+		struct objc_method_list *list = legacy_calloc_flexible_or_abort(
+			sizeof(struct objc_method_list), old->count, sizeof(struct objc_method));
+		list->count = old->count;
+		list->size = sizeof(struct objc_method);
+		for (int i=0 ; i<old->count ; i++)
+		{
+			list->methods[i].imp = old->methods[i].imp;
+			list->methods[i].selector = old->methods[i].selector;
+			list->methods[i].types = old->methods[i].types;
+		}
+		*tail = list;
+		tail = &list->next;
+		old = old->next;
 	}
-	if (old->count == 0)
-	{
-		return NULL;
-	}
-	struct objc_method_list *l = calloc(1, sizeof(struct objc_method_list) + old->count * sizeof(struct objc_method));
-	l->count = old->count;
-	if (old->next)
-	{
-		l->next = upgradeMethodList(old->next);
-	}
-	l->size = sizeof(struct objc_method);
-	for (int i=0 ; i<old->count ; i++)
-	{
-		l->methods[i].imp = old->methods[i].imp;
-		l->methods[i].selector = old->methods[i].selector;
-		l->methods[i].types = old->methods[i].types;
-	}
-	return l;
+	if ((old != NULL) && (old->count < 0)) { abort(); }
+	return head;
 }
 
 static inline BOOL checkAttribute(char field, int attr)
@@ -169,31 +205,29 @@ static inline BOOL checkAttribute(char field, int attr)
 
 static void upgradeProperty(struct objc_property *n, struct objc_property_gsv1 *o)
 {
+	if ((n == NULL) || (o == NULL) || (o->name == NULL)) { abort(); }
 	char *typeEncoding;
-	ptrdiff_t typeSize;
+	size_t typeSize;
 	if (o->name[0] == '\0')
 	{
-		n->name = o->name + o->name[1];
+		unsigned char nameOffset = (unsigned char)o->name[1];
+		if (nameOffset < 2) { abort(); }
+		n->name = o->name + nameOffset;
 		n->attributes = o->name + 2;
-		// If we have an attribute string, then it will contain a more accurate
-		// version of the types than we'll find in the getter (qualifiers such
-		// as _Atomic and volatile may be dropped)
-		assert(n->attributes[0] == 'T');
+		if (n->attributes[0] != 'T') { abort(); }
 		const char *type_start = &n->attributes[1];
 		const char *type_end = strchr(type_start, ',');
-		if (type_end == NULL)
-		{
-			type_end = type_start + strlen(type_start);
-		}
-		typeSize = type_end - type_start;
-		typeEncoding = malloc(typeSize  + 1);
+		if (type_end == NULL) { type_end = type_start + strlen(type_start); }
+		typeSize = (size_t)(type_end - type_start);
+		typeEncoding = legacy_malloc_or_abort(legacy_size_add_or_abort(typeSize, 1));
 		memcpy(typeEncoding, type_start, typeSize);
 		typeEncoding[typeSize] = 0;
 	}
 	else
 	{
-		typeSize = (ptrdiff_t)lengthOfTypeEncoding(o->getter_types);
-		typeEncoding = malloc(typeSize + 1);
+		if (o->getter_types == NULL) { abort(); }
+		typeSize = lengthOfTypeEncoding(o->getter_types);
+		typeEncoding = legacy_malloc_or_abort(legacy_size_add_or_abort(typeSize, 1));
 		memcpy(typeEncoding, o->getter_types, typeSize);
 		typeEncoding[typeSize] = 0;
 	}
@@ -208,86 +242,55 @@ static void upgradeProperty(struct objc_property *n, struct objc_property_gsv1 *
 		n->setter = sel_registerTypedName_np(o->setter_name, o->setter_types);
 	}
 
-	if (o->name[0] == '\0')
-	{
-		return;
-	}
+	if (o->name[0] == '\0') { return; }
 
 	n->name = o->name;
-
 	const char *name = o->name;
-	size_t nameSize = (NULL == name) ? 0 : strlen(name);
-	// Encoding is T{type},V{name}, so 4 bytes for the "T,V" that we always
-	// need.  We also need two bytes for the leading null and the length.
-	size_t encodingSize = typeSize + nameSize + 6;
+	size_t nameSize = strlen(name);
+	size_t encodingSize = legacy_size_add_or_abort(typeSize, nameSize);
+	encodingSize = legacy_size_add_or_abort(encodingSize, 6);
 	char flags[20];
 	size_t i = 0;
-	// Flags that are a comma then a character
-	if (checkAttribute(o->attributes, OBJC_PR_readonly))
-	{
-		flags[i++] = ',';
-		flags[i++] = 'R';
-	}
-	if (checkAttribute(o->attributes, OBJC_PR_retain))
-	{
-		flags[i++] = ',';
-		flags[i++] = '&';
-	}
-	if (checkAttribute(o->attributes, OBJC_PR_copy))
-	{
-		flags[i++] = ',';
-		flags[i++] = 'C';
-	}
-	if (checkAttribute(o->attributes2, OBJC_PR_weak))
-	{
-		flags[i++] = ',';
-		flags[i++] = 'W';
-	}
-	if (checkAttribute(o->attributes2, OBJC_PR_dynamic))
-	{
-		flags[i++] = ',';
-		flags[i++] = 'D';
-	}
-	if ((o->attributes & OBJC_PR_nonatomic) == OBJC_PR_nonatomic)
-	{
-		flags[i++] = ',';
-		flags[i++] = 'N';
-	}
-	encodingSize += i;
+	if (checkAttribute(o->attributes, OBJC_PR_readonly)) { flags[i++] = ','; flags[i++] = 'R'; }
+	if (checkAttribute(o->attributes, OBJC_PR_retain)) { flags[i++] = ','; flags[i++] = '&'; }
+	if (checkAttribute(o->attributes, OBJC_PR_copy)) { flags[i++] = ','; flags[i++] = 'C'; }
+	if (checkAttribute(o->attributes2, OBJC_PR_weak)) { flags[i++] = ','; flags[i++] = 'W'; }
+	if (checkAttribute(o->attributes2, OBJC_PR_dynamic)) { flags[i++] = ','; flags[i++] = 'D'; }
+	if ((o->attributes & OBJC_PR_nonatomic) == OBJC_PR_nonatomic) { flags[i++] = ','; flags[i++] = 'N'; }
+	encodingSize = legacy_size_add_or_abort(encodingSize, i);
 	flags[i] = '\0';
-	size_t setterLength = 0;
+
 	size_t getterLength = 0;
+	size_t setterLength = 0;
 	if ((o->attributes & OBJC_PR_getter) == OBJC_PR_getter)
 	{
+		if (o->getter_name == NULL) { abort(); }
 		getterLength = strlen(o->getter_name);
-		encodingSize += 2 + getterLength;
+		encodingSize = legacy_size_add_or_abort(encodingSize,
+			legacy_size_add_or_abort(2, getterLength));
 	}
 	if ((o->attributes & OBJC_PR_setter) == OBJC_PR_setter)
 	{
+		if (o->setter_name == NULL) { abort(); }
 		setterLength = strlen(o->setter_name);
-		encodingSize += 2 + setterLength;
+		encodingSize = legacy_size_add_or_abort(encodingSize,
+			legacy_size_add_or_abort(2, setterLength));
 	}
-	unsigned char *encoding = malloc(encodingSize);
-	// Set the leading 0 and the offset of the name
+
+	unsigned char *encoding = legacy_malloc_or_abort(encodingSize);
 	unsigned char *insert = encoding;
 	BOOL needsComma = NO;
 	*(insert++) = 0;
 	*(insert++) = 0;
-	// Set the type encoding
 	*(insert++) = 'T';
 	memcpy(insert, typeEncoding, typeSize);
 	insert += typeSize;
 	needsComma = YES;
-	// Set the flags
 	memcpy(insert, flags, i);
 	insert += i;
 	if ((o->attributes & OBJC_PR_getter) == OBJC_PR_getter)
 	{
-		if (needsComma)
-		{
-			*(insert++) = ',';
-		}
-		i++;
+		if (needsComma) { *(insert++) = ','; }
 		needsComma = YES;
 		*(insert++) = 'G';
 		memcpy(insert, o->getter_name, getterLength);
@@ -295,24 +298,18 @@ static void upgradeProperty(struct objc_property *n, struct objc_property_gsv1 *
 	}
 	if ((o->attributes & OBJC_PR_setter) == OBJC_PR_setter)
 	{
-		if (needsComma)
-		{
-			*(insert++) = ',';
-		}
-		i++;
+		if (needsComma) { *(insert++) = ','; }
 		needsComma = YES;
 		*(insert++) = 'S';
 		memcpy(insert, o->setter_name, setterLength);
 		insert += setterLength;
 	}
-	if (needsComma)
-	{
-		*(insert++) = ',';
-	}
+	if (needsComma) { *(insert++) = ','; }
 	*(insert++) = 'V';
 	memcpy(insert, name, nameSize);
 	insert += nameSize;
 	*(insert++) = '\0';
+	assert((size_t)(insert - encoding) == encodingSize);
 
 	n->attributes = (const char*)encoding;
 }
@@ -323,8 +320,8 @@ static struct objc_property_list *upgradePropertyList(struct objc_property_list_
 	{
 		return NULL;
 	}
-	size_t data_size = l->count * sizeof(struct objc_property);
-	struct objc_property_list *n = calloc(1, sizeof(struct objc_property_list) + data_size);
+	struct objc_property_list *n = legacy_calloc_flexible_or_abort(
+		sizeof(struct objc_property_list), l->count, sizeof(struct objc_property));
 	n->count = l->count;
 	n->size = sizeof(struct objc_property);
 	for (int i=0 ; i<l->count ; i++)
@@ -343,7 +340,9 @@ PRIVATE struct objc_class_gsv1* objc_legacy_class_for_class(Class cls)
 
 PRIVATE Class objc_upgrade_class(struct objc_class_gsv1 *oldClass)
 {
+	if (oldClass == NULL) { abort(); }
 	Class cls = calloc(1, sizeof(struct objc_class));
+	if (cls == Nil) { abort(); }
 	cls->isa = oldClass->isa;
 	// super_class is left nil and we upgrade it later.
 	cls->name = oldClass->name;
@@ -370,7 +369,9 @@ PRIVATE Class objc_upgrade_class(struct objc_class_gsv1 *oldClass)
 }
 PRIVATE struct objc_category *objc_upgrade_category(struct objc_category_gcc *old)
 {
+	if (old == NULL) { abort(); }
 	struct objc_category *cat = calloc(1, sizeof(struct objc_category));
+	if (cat == NULL) { abort(); }
 	memcpy(cat, old, sizeof(struct objc_category_gcc));
 	cat->instance_methods = upgradeMethodList(old->instance_methods);
 	cat->class_methods = upgradeMethodList(old->class_methods);
@@ -382,7 +383,7 @@ PRIVATE struct objc_category *objc_upgrade_category(struct objc_category_gcc *ol
 	{
 		objc_register_selectors_from_list(cat->class_methods);
 	}
-	for (int i=0 ; i<cat->protocols->count ; i++)
+	if (cat->protocols != NULL)
 	{
 		objc_init_protocols(cat->protocols);
 	}
@@ -397,8 +398,9 @@ upgrade_protocol_method_list_gcc(struct objc_protocol_method_description_list_gc
 		return NULL;
 	}
 	struct objc_protocol_method_description_list *n =
-		malloc(sizeof(struct objc_protocol_method_description_list) +
-			l->count * sizeof(struct objc_protocol_method_description));
+		legacy_malloc_flexible_or_abort(
+			sizeof(struct objc_protocol_method_description_list), l->count,
+			sizeof(struct objc_protocol_method_description));
 	n->count = l->count;
 	n->size = sizeof(struct objc_protocol_method_description);
 	for (int i=0 ; i<n->count ; i++)
@@ -419,6 +421,7 @@ PRIVATE struct objc_protocol *objc_upgrade_protocol_gcc(struct objc_protocol_gcc
 	p->isa = (id)&_OBJC_CLASS_ProtocolGCC;
 	Protocol *proto =
 		(Protocol*)class_createInstance(&_OBJC_CLASS_Protocol, 0);
+	if (proto == NULL) { abort(); }
 	proto->name = p->name;
 	// Aliasing of this between the new and old structures means that when this
 	// returns these will all be updated.
@@ -438,6 +441,7 @@ PRIVATE struct objc_protocol *objc_upgrade_protocol_gsv1(struct objc_protocol_gs
 	}
 	Protocol *n =
 		(Protocol*)class_createInstance(&_OBJC_CLASS_Protocol, 0);
+	if (n == NULL) { abort(); }
 	n->instance_methods = upgrade_protocol_method_list_gcc(p->instance_methods);
 	// Aliasing of this between the new and old structures means that when this
 	// returns these will all be updated.

@@ -202,3 +202,11 @@ if (BUILD_STATIC_LIBOBJC)
 	set_tests_properties(ManyManySelectors_static PROPERTIES PROCESSORS 3)
 	set_tests_properties(ManyManySelectors_optimised_static PROPERTIES PROCESSORS 3)
 endif ()
+
+# Single-TU legacy ABI contract.  This avoids COFF weak-reference collisions
+# between the historical shared Test.m fixture and gnustep-1.7 test objects.
+if (OLDABI_COMPAT)
+	addtest_flags("LegacyABIContract"
+		"-O2 -fobjc-runtime=gnustep-1.7 -UNDEBUG"
+		"LegacyABIContract.m" objc "")
+endif()

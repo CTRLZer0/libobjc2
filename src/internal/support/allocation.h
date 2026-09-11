@@ -9,6 +9,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static inline int objc2_size_add(size_t left, size_t right, size_t *result)
+{
+	if (NULL == result) { return 0; }
+	if (left > SIZE_MAX - right) { return 0; }
+	*result = left + right;
+	return 1;
+}
+
 static inline int objc2_size_multiply(size_t left, size_t right, size_t *result)
 {
 	if (NULL == result) { return 0; }
