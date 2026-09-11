@@ -9,6 +9,7 @@
 #include "gc_ops.h"
 #include "crt_compat.h"
 #include "allocation.h"
+#include "observability.h"
 
 /* Make glibc export objc2_strdup() */
 
@@ -220,6 +221,13 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 		add_method_list_to_class(cls, methods);
 	}
 
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_METHOD_ADDED;
+	event.cls = cls;
+	event.selector = typedSelector;
+	event.new_implementation = imp;
+	event.name = methodName;
+	mosaic_objc_emitRuntimeEvent(&event);
 	return YES;
 }
 
@@ -529,6 +537,15 @@ IMP class_replaceMethod(Class cls, SEL name, IMP imp, const char *types)
 	IMP old = (IMP)method->imp;
 	method->imp = imp;
 	update_cxx_method_cache(cls, sel_getName(sel), imp);
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_METHOD_REPLACED;
+	event.cls = cls;
+	event.method = method;
+	event.selector = sel;
+	event.old_implementation = old;
+	event.new_implementation = imp;
+	event.name = sel_getName(sel);
+	mosaic_objc_emitRuntimeEvent(&event);
 	return old;
 }
 
@@ -637,8 +654,18 @@ void method_exchangeImplementations(Method m1, Method m2)
 {
 	if (NULL == m1 || NULL == m2) { return; }
 	IMP tmp = (IMP)m1->imp;
-	m1->imp = m2->imp;
+	IMP second = (IMP)m2->imp;
+	m1->imp = second;
 	m2->imp = tmp;
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATIONS_EXCHANGED;
+	event.method = m1;
+	event.other_method = m2;
+	event.selector = m1->selector;
+	event.old_implementation = tmp;
+	event.new_implementation = second;
+	event.name = sel_getName(m1->selector);
+	mosaic_objc_emitRuntimeEvent(&event);
 }
 
 IMP method_getImplementation(Method method)
@@ -659,6 +686,14 @@ IMP method_setImplementation(Method method, IMP imp)
 	if (NULL == method) { return (IMP)NULL; }
 	IMP old = (IMP)method->imp;
 	method->imp = imp;
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATION_CHANGED;
+	event.method = method;
+	event.selector = method->selector;
+	event.old_implementation = old;
+	event.new_implementation = imp;
+	event.name = sel_getName(method->selector);
+	mosaic_objc_emitRuntimeEvent(&event);
 	return old;
 }
 
@@ -981,6 +1016,12 @@ Class objc_duplicateClass(Class original, const char *name, size_t extraBytes)
 		duplicate->super_class->subclass_list = duplicate;
 	}
 	class_table_insert(duplicate);
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_CLASS_REGISTERED;
+	event.cls = duplicate;
+	event.name = duplicate->name;
+	event.detail = "duplicate";
+	mosaic_objc_emitRuntimeEvent(&event);
 	return duplicate;
 }
 
@@ -1107,5 +1148,11 @@ void objc_registerClassPair(Class cls)
 	LOCK_RUNTIME_FOR_SCOPE();
 	class_table_insert(cls);
 	objc_resolve_class(cls);
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_CLASS_REGISTERED;
+	event.cls = cls;
+	event.name = cls->name;
+	event.detail = "dynamic";
+	mosaic_objc_emitRuntimeEvent(&event);
 }
 

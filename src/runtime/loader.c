@@ -9,6 +9,7 @@
 #include "visibility.h"
 #include "crt_compat.h"
 #include "legacy.h"
+#include "observability.h"
 #ifdef ENABLE_GC
 #include <gc/gc.h>
 #endif
@@ -456,7 +457,7 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 	{
 		return;
 	}
-	register_loaded_objc_image(init);
+	mosaic_objc_image_t image = register_loaded_objc_image(init);
 
 	assert(init->version == 0);
 	assert((((uintptr_t)init->sel_end-(uintptr_t)init->sel_begin) % sizeof(*init->sel_begin)) == 0);
@@ -522,6 +523,16 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 		fprintf(stderr, "Loading class %s\n", (*cls)->name);
 #endif
 		objc_load_class(*cls);
+		if (objc_lookUpClass((*cls)->name) == *cls)
+		{
+			struct mosaic_objc_runtime_event event = {0};
+			event.kind = MOSAIC_OBJC_EVENT_CLASS_REGISTERED;
+			event.image = image;
+			event.cls = *cls;
+			event.name = (*cls)->name;
+			event.detail = "image";
+			mosaic_objc_emitRuntimeEvent(&event);
+		}
 		classesLoaded++;
 	}
 	if (isFirstLoad && (classesLoaded == 0))
@@ -575,6 +586,10 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 	}
 #endif
 	init->version = ULONG_MAX;
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_IMAGE_LOADED;
+	event.image = image;
+	mosaic_objc_emitRuntimeEvent(&event);
 }
 
 #ifdef OLDABI_COMPAT

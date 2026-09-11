@@ -6,6 +6,7 @@
 #include "legacy.h"
 #include "crt_compat.h"
 #include "allocation.h"
+#include "observability.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <limits.h>
@@ -82,6 +83,12 @@ static void protocol_report_conflict(const char *protocolName,
                                      const char *kind, const char *member)
 {
 	__atomic_add_fetch(&protocol_merge_conflicts, 1, __ATOMIC_RELAXED);
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_PROTOCOL_CONFLICT;
+	event.protocol = protocolName ? protocol_for_name(protocolName) : NULL;
+	event.name = member;
+	event.detail = kind;
+	mosaic_objc_emitRuntimeEvent(&event);
 	fprintf(stderr, "objc: conflicting %s '%s' in protocol %s; keeping first definition\n",
 	        kind, member ? member : "<unnamed>", protocolName ? protocolName : "<unnamed>");
 }
@@ -751,12 +758,21 @@ static Protocol *register_protocol_definition(Protocol *proto)
 {
 	Protocol *existing = protocol_for_name(proto->name);
 	proto->isa = (id)&_OBJC_CLASS_Protocol;
+	struct mosaic_objc_runtime_event event = {0};
 	if (existing == NULL)
 	{
 		protocol_table_insert(proto);
+		event.kind = MOSAIC_OBJC_EVENT_PROTOCOL_REGISTERED;
+		event.protocol = proto;
+		event.name = proto->name;
+		mosaic_objc_emitRuntimeEvent(&event);
 		return proto;
 	}
 	makeProtocolEqualToProtocol(existing, proto);
+	event.kind = MOSAIC_OBJC_EVENT_PROTOCOL_MERGED;
+	event.protocol = existing;
+	event.name = existing->name;
+	mosaic_objc_emitRuntimeEvent(&event);
 	return existing;
 }
 

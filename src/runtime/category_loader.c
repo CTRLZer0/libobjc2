@@ -4,6 +4,7 @@
 #include "loader.h"
 #include "dtable.h"
 #include "properties.h"
+#include "observability.h"
 
 #define BUFFER_TYPE struct objc_category *
 #include "buffer.h"
@@ -48,6 +49,12 @@ static void load_category(struct objc_category *cat, struct objc_class *class)
 		cat->class_properties->next = class->isa->properties;
 		class->isa->properties = cat->class_properties;
 	}
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_CATEGORY_ATTACHED;
+	event.cls = class;
+	event.name = cat->name;
+	event.detail = cat->class_name;
+	mosaic_objc_emitRuntimeEvent(&event);
 }
 
 static BOOL try_load_category(struct objc_category *cat)
