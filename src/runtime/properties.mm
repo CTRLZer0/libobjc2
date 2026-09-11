@@ -527,6 +527,68 @@ static const char *encodingFromAttrs(const objc_property_attribute_t *attributes
 	return buffer;
 }
 
+static char *copyCanonicalPropertyType(const char *type)
+{
+	if (type == NULL) { return NULL; }
+	size_t allocationSize;
+	if (!objc2_size_add(strlen(type), 1, &allocationSize)) { return NULL; }
+	char *copy = static_cast<char*>(malloc(allocationSize));
+	if (copy == NULL) { return NULL; }
+	const char *in = type;
+	char *out = copy;
+	while (*in != '\0')
+	{
+		*out++ = *in;
+		if ((*in == '@') && (in[1] == '"'))
+		{
+			in += 2;
+			while ((*in != '\0') && (*in != '"'))
+			{
+				if ((*in == '\\') && (in[1] != '\0')) { in += 2; }
+				else { in++; }
+			}
+			if (*in != '"') { free(copy); return NULL; }
+			in++;
+			continue;
+		}
+		in++;
+	}
+	*out = '\0';
+	return copy;
+}
+
+static SEL registerPropertyAccessor(const char *name, const char *type, BOOL setter)
+{
+	if (name == NULL) { return NULL; }
+	if ((type == NULL) || (type[0] == '\0')) { return sel_registerName(name); }
+	char *canonicalType = copyCanonicalPropertyType(type);
+	if (canonicalType == NULL) { return NULL; }
+	size_t typeLength = strlen(canonicalType);
+	size_t signatureSize;
+	const size_t overhead = setter ? 4 : 3;
+	if (!objc2_size_add(typeLength, overhead, &signatureSize))
+	{
+		free(canonicalType);
+		return NULL;
+	}
+	char *signature = static_cast<char*>(malloc(signatureSize));
+	if (signature == NULL) { free(canonicalType); return NULL; }
+	if (setter)
+	{
+		memcpy(signature, "v@:", 3);
+		memcpy(signature + 3, canonicalType, typeLength + 1);
+	}
+	else
+	{
+		memcpy(signature, canonicalType, typeLength);
+		memcpy(signature + typeLength, "@:", 3);
+	}
+	SEL selector = sel_registerTypedName_np(name, signature);
+	free(signature);
+	free(canonicalType);
+	return selector;
+}
+
 PRIVATE struct objc_property propertyFromAttrs(const objc_property_attribute_t *attributes,
                                                           unsigned int attributeCount,
                                                           const char *name)
@@ -544,17 +606,13 @@ PRIVATE struct objc_property propertyFromAttrs(const objc_property_attribute_t *
 	attr = findAttribute('G', attributes, attributeCount);
 	if ((attr != NULL) && (attr->value != NULL))
 	{
-		// TODO: We should be able to construct the full type encoding if we
-		// also have a type, but for now use an untyped selector.
-		p.getter = sel_registerName(attr->value);
+		p.getter = registerPropertyAccessor(attr->value, p.type, NO);
 	}
 	p.setter = NULL;
 	attr = findAttribute('S', attributes, attributeCount);
 	if ((attr != NULL) && (attr->value != NULL))
 	{
-		// TODO: We should be able to construct the full type encoding if we
-		// also have a type, but for now use an untyped selector.
-		p.setter = sel_registerName(attr->value);
+		p.setter = registerPropertyAccessor(attr->value, p.type, YES);
 	}
 	return p;
 }
@@ -566,7 +624,11 @@ static BOOL propertyConstructionFailed(const struct objc_property *property,
 	if (property->name == NULL) { return YES; }
 	if ((attributeCount != 0) && (property->attributes == NULL)) { return YES; }
 	const objc_property_attribute_t *type = findAttribute('T', attributes, attributeCount);
-	return (type != NULL) && (type->value != NULL) && (property->type == NULL);
+	if ((type != NULL) && (type->value != NULL) && (property->type == NULL)) { return YES; }
+	const objc_property_attribute_t *getter = findAttribute('G', attributes, attributeCount);
+	if ((getter != NULL) && (getter->value != NULL) && (property->getter == NULL)) { return YES; }
+	const objc_property_attribute_t *setter = findAttribute('S', attributes, attributeCount);
+	return (setter != NULL) && (setter->value != NULL) && (property->setter == NULL);
 }
 
 static void freeConstructedProperty(struct objc_property *property)

@@ -26,6 +26,18 @@ static int method_list_contains(Method *list, unsigned int count, SEL selector)
 	return 0;
 }
 
+static int selector_has_type(const char *name, const char *expected)
+{
+	const char *types[8] = {0};
+	unsigned count = sel_copyTypes_np(name, types, 8);
+	unsigned copied = count < 8 ? count : 8;
+	for (unsigned i = 0; i < copied; i++)
+	{
+		if ((types[i] != NULL) && (strcmp(types[i], expected) == 0)) { return 1; }
+	}
+	return 0;
+}
+
 int main(void)
 {
 	mosaic_objc_runtime_initialize();
@@ -97,6 +109,30 @@ int main(void)
 	CHECK(type != NULL && strcmp(type, "i") == 0);
 	free(type);
 	CHECK(property_copyAttributeValue(property, "V") == NULL);
+
+	objc_property_attribute_t typedScalar[] = {{"T", "i"}, {"G", "mosaicTypedNumber"}, {"S", "setMosaicTypedNumber:"}};
+	CHECK(class_addProperty(cls, "typedNumber", typedScalar, 3) == YES);
+	CHECK(selector_has_type("mosaicTypedNumber", "i@:"));
+	CHECK(selector_has_type("setMosaicTypedNumber:", "v@:i"));
+
+	objc_property_attribute_t typedObject[] = {{"T", "@\"NSString\""}, {"G", "mosaicTypedObject"}, {"S", "setMosaicTypedObject:"}};
+	CHECK(class_addProperty(cls, "typedObject", typedObject, 3) == YES);
+	CHECK(selector_has_type("mosaicTypedObject", "@@:"));
+	CHECK(selector_has_type("setMosaicTypedObject:", "v@:@"));
+
+	objc_property_attribute_t typedStruct[] = {{"T", "{MosaicTypedBox=@\"NSObject\"i}"}, {"G", "mosaicTypedBox"}, {"S", "setMosaicTypedBox:"}};
+	CHECK(class_addProperty(cls, "typedBox", typedStruct, 3) == YES);
+	CHECK(selector_has_type("mosaicTypedBox", "{MosaicTypedBox=@i}@:"));
+	CHECK(selector_has_type("setMosaicTypedBox:", "v@:{MosaicTypedBox=@i}"));
+
+	objc_property_attribute_t untypedAccessors[] = {{"G", "mosaicUntypedGetter"}, {"S", "setMosaicUntyped:"}};
+	CHECK(class_addProperty(cls, "untypedAccessors", untypedAccessors, 2) == YES);
+	CHECK(sel_getType_np(sel_registerName("mosaicUntypedGetter")) == NULL);
+	CHECK(sel_getType_np(sel_registerName("setMosaicUntyped:")) == NULL);
+
+	objc_property_attribute_t malformedTyped[] = {{"T", "@\"Unclosed"}, {"G", "mosaicMalformedTyped"}};
+	CHECK(class_addProperty(cls, "malformedTyped", malformedTyped, 2) == NO);
+	CHECK(class_getProperty(cls, "malformedTyped") == NULL);
 
 	// Regression for fuzz input 2f 7e 7e 3b: a valueless getter followed by
 	// an empty ivar attribute must not desynchronise attribute parsing.
