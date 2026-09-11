@@ -1,5 +1,6 @@
 #include "objc/support/capabilities.h"
 #include <stdint.h>
+#include "tracing.h"
 
 /**
  * Bitmask of all of the capabilities compiled into this version of the
@@ -29,7 +30,7 @@ static const int32_t caps =
 #ifdef ENABLE_GC
 	(1<<OBJC_CAP_GARBAGE_COLLECTION) |
 #endif
-#if defined(WITH_TRACING) && defined (__x86_64)
+#ifdef OBJC2_TRACING_SUPPORTED
 	(1<<OBJC_CAP_TRACING) |
 #endif
 	0;

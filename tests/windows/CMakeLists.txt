@@ -45,6 +45,16 @@ add_mosaic_runtime_test(
 add_mosaic_runtime_test(
 	mosaic_objc_encoding_contract
 	encoding_contract.c)
+add_mosaic_runtime_test(
+	mosaic_objc_tracing_contract
+	tracing_contract.c)
+add_test(
+	NAME mosaic_objc_arm64_tracing_asm_contract
+	COMMAND "${CMAKE_COMMAND}"
+		"-DROOT=${MOSAIC_LIBOBJC2_ROOT}"
+		"-DCLANG=${MOSAIC_LIBOBJC2_CLANG}"
+		"-DOUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-tracing-contract"
+		-P "${CMAKE_CURRENT_LIST_DIR}/arm64_tracing_asm_contract.cmake")
 target_include_directories(mosaic_objc_ivar_contract PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/runtime")
 add_mosaic_runtime_test(

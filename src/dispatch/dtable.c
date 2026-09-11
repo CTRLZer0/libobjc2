@@ -13,6 +13,7 @@
 #include "dtable.h"
 #include "visibility.h"
 #include "asmconstants.h"
+#include "tracing.h"
 
 _Static_assert(__builtin_offsetof(struct objc_class, dtable) == DTABLE_OFFSET,
 		"Incorrect dtable offset for assembly");
@@ -46,7 +47,7 @@ static inline void sparse_array_insert_or_abort(SparseArray *array, uint32_t ind
 	if (!SparseArrayInsert(array, index, value)) { abort(); }
 }
 PRIVATE dtable_t uninstalled_dtable;
-#if defined(WITH_TRACING) && defined (__x86_64)
+#ifdef OBJC2_TRACING_SUPPORTED
 PRIVATE dtable_t tracing_dtable;
 #endif
 #ifndef ENOTSUP
@@ -269,53 +270,45 @@ PRIVATE void init_dispatch_tables ()
 {
 	INIT_LOCK(initialize_lock);
 	uninstalled_dtable = new_sparse_array_or_abort(dtable_depth);
-#if defined(WITH_TRACING) && defined (__x86_64)
+#ifdef OBJC2_TRACING_SUPPORTED
 	tracing_dtable = new_sparse_array_or_abort(dtable_depth);
 #endif
 }
 
-#if defined(WITH_TRACING) && defined (__x86_64)
-static int init;
+#ifdef OBJC2_TRACING_SUPPORTED
+#define TRACE_CONTEXT_WORDS 6
+#define TRACE_CONTEXT_DEPTH 512
 
-static void free_thread_stack(void* x)
-{
-	free(*(void**)x);
-}
-static pthread_key_t thread_stack_key;
-static void alloc_thread_stack(void)
-{
-	pthread_key_create(&thread_stack_key, free_thread_stack);
-	init = 1;
-}
+static __thread void *trace_return_stack[TRACE_CONTEXT_WORDS * TRACE_CONTEXT_DEPTH];
+static __thread size_t trace_return_depth;
 
-PRIVATE void* pushTraceReturnStack(void)
+PRIVATE void *pushTraceReturnStack(void)
 {
-	static pthread_once_t once_control = PTHREAD_ONCE_INIT;
-	if (!init)
-	{
-		pthread_once(&once_control, alloc_thread_stack);
-	}
-	void **stack = pthread_getspecific(thread_stack_key);
-	if (stack == 0)
-	{
-		stack = malloc(4096*sizeof(void*));
-	}
-	pthread_setspecific(thread_stack_key, stack + 5);
-	return stack;
+	if (trace_return_depth == TRACE_CONTEXT_DEPTH) { abort(); }
+	void **context = trace_return_stack + (trace_return_depth * TRACE_CONTEXT_WORDS);
+	trace_return_depth++;
+	return context;
 }
 
-PRIVATE void* popTraceReturnStack(void)
+PRIVATE void *popTraceReturnStack(void)
 {
-	void **stack = pthread_getspecific(thread_stack_key);
-	stack -= 5;
-	pthread_setspecific(thread_stack_key, stack);
-	return stack;
+	if (trace_return_depth == 0) { abort(); }
+	trace_return_depth--;
+	return trace_return_stack + (trace_return_depth * TRACE_CONTEXT_WORDS);
 }
+
+PRIVATE objc_tracing_hook objc2_tracing_hook_for_selector(SEL selector)
+{
+	if (selector == NULL) { return NULL; }
+	return (objc_tracing_hook)SparseArrayLookup(tracing_dtable, selector->index);
+}
+
 #endif
 
 int objc_registerTracingHook(SEL aSel, objc_tracing_hook aHook)
 {
-#if defined(WITH_TRACING) && defined (__x86_64)
+#ifdef OBJC2_TRACING_SUPPORTED
+	if (aSel == NULL) { return EINVAL; }
 	SEL stackBuffer[16];
 	SEL *selectors = stackBuffer;
 	unsigned count = 1;
@@ -655,7 +648,7 @@ PRIVATE void objc_resize_dtables(uint32_t newSize)
 	dtable_t old_uninstalled_dtable = uninstalled_dtable;
 
 	uninstalled_dtable = expand_dtable_or_abort(uninstalled_dtable, targetDepth);
-#if defined(WITH_TRACING) && defined (__x86_64)
+#ifdef OBJC2_TRACING_SUPPORTED
 	tracing_dtable = expand_dtable_or_abort(tracing_dtable, targetDepth);
 #endif
 	{

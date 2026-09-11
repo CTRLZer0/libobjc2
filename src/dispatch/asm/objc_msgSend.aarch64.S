@@ -63,6 +63,29 @@
 #   define EH_NOP
 #endif
 
+#ifdef OBJC2_TRACING_SUPPORTED
+#define TRACE_ENTRY_SPILL_SIZE 224
+#define TRACE_RETURN_SPILL_SIZE 96
+
+.macro TRACE_RESTORE_ENTRY
+	ldp    x0, x1, [sp, #0]
+	ldp    x2, x3, [sp, #16]
+	ldp    x4, x5, [sp, #32]
+	ldp    x6, x7, [sp, #48]
+	ldp    x8, x9, [sp, #64]
+	ldp    q0, q1, [sp, #80]
+	ldp    q2, q3, [sp, #112]
+	ldp    q4, q5, [sp, #144]
+	ldp    q6, q7, [sp, #176]
+	ldr    lr, [sp, #208]
+	add    sp, sp, #TRACE_ENTRY_SPILL_SIZE
+#ifndef _WIN32
+	.cfi_restore lr
+	.cfi_adjust_cfa_offset -TRACE_ENTRY_SPILL_SIZE
+#endif
+.endm
+#endif
+
 .macro MSGSEND fnname receiver, sel
 	EH_START
 
@@ -98,7 +121,120 @@
 	cbz    x9,  5f                         // If the slot is nil, go to the C path
 
 	ldr    x9, [x9, #SLOT_OFFSET]          // Load the method from the slot
+7:
+#ifdef OBJC2_TRACING_SUPPORTED
+	// Tracing is opt-in at build time.  Preserve all AAPCS64 argument
+	// registers before consulting the per-selector tracing table.
+	sub    sp, sp, #TRACE_ENTRY_SPILL_SIZE
+#ifndef _WIN32
+	.cfi_adjust_cfa_offset TRACE_ENTRY_SPILL_SIZE
+#endif
+	stp    x0, x1, [sp, #0]
+	stp    x2, x3, [sp, #16]
+	stp    x4, x5, [sp, #32]
+	stp    x6, x7, [sp, #48]
+	stp    x8, x9, [sp, #64]
+	stp    q0, q1, [sp, #80]
+	stp    q2, q3, [sp, #112]
+	stp    q4, q5, [sp, #144]
+	stp    q6, q7, [sp, #176]
+	str    lr, [sp, #208]
+#ifndef _WIN32
+	.cfi_offset lr, -16
+#endif
+
+	mov    x0, \sel
+	bl     CDECL(objc2_tracing_hook_for_selector)
+	cbz    x0, 12f
+	str    x0, [sp, #216]                 // Preserve tracing hook.
+
+	ldr    x0, [sp, #0]                   // receiver
+	ldr    x1, [sp, #8]                   // selector
+	ldr    x2, [sp, #72]                  // implementation
+	mov    w3, #0                          // entering
+	mov    x4, #0                          // no return value on entry
+	ldr    x10, [sp, #216]
+	blr    x10
+
+	cbz    x0, 13f                        // Entry only: tail-call original IMP.
+	cmp    x0, #1
+	b.ne   14f                            // Any other value interposes the IMP.
+
+	// Exit tracing needs to call the IMP with the caller's original SP so that
+	// stack-passed arguments remain ABI-correct.  Store the tracing context in
+	// TLS and keep the original return address in callee-saved x19 while the
+	// method runs.
+	bl     CDECL(pushTraceReturnStack)
+	ldr    x10, [sp, #0]
+	str    x10, [x0, #0]                  // receiver
+	ldr    x10, [sp, #8]
+	str    x10, [x0, #8]                  // selector
+	ldr    x10, [sp, #72]
+	str    x10, [x0, #16]                 // implementation
+	ldr    x10, [sp, #216]
+	str    x10, [x0, #24]                 // tracing hook
+	ldr    x10, [sp, #208]
+	str    x10, [x0, #32]                 // caller return address
+	str    x19, [x0, #40]                 // caller x19
+	mov    x19, x10
+
+	TRACE_RESTORE_ENTRY
+#ifndef _WIN32
+	.cfi_register lr, x19
+#endif
+	blr    x9
+15:
+	// Preserve all architecturally relevant return registers while the exit
+	// hook executes: x0/x1 for integer aggregates and q0-q3 for FP/HFA values.
+	sub    sp, sp, #TRACE_RETURN_SPILL_SIZE
+#ifndef _WIN32
+	.cfi_adjust_cfa_offset TRACE_RETURN_SPILL_SIZE
+#endif
+	stp    x0, x1, [sp, #0]
+	stp    q0, q1, [sp, #16]
+	stp    q2, q3, [sp, #48]
+	str    x19, [sp, #80]                 // original caller LR
+#ifndef _WIN32
+	.cfi_offset lr, -16
+#endif
+
+	bl     CDECL(popTraceReturnStack)
+	str    x0, [sp, #88]
+	mov    x11, x0
+	ldr    x0, [x11, #0]
+	ldr    x1, [x11, #8]
+	ldr    x2, [x11, #16]
+	mov    w3, #1                          // leaving
+	ldr    x4, [sp, #0]                   // word-sized scalar return value
+	ldr    x10, [x11, #24]
+	blr    x10
+
+	ldr    x11, [sp, #88]
+	ldr    x19, [x11, #40]
+	ldr    lr, [sp, #80]
+	ldp    x0, x1, [sp, #0]
+	ldp    q0, q1, [sp, #16]
+	ldp    q2, q3, [sp, #48]
+	add    sp, sp, #TRACE_RETURN_SPILL_SIZE
+#ifndef _WIN32
+	.cfi_restore lr
+	.cfi_adjust_cfa_offset -TRACE_RETURN_SPILL_SIZE
+#endif
+	br     lr
+
+12:                                        // No tracing hook for this selector.
+	TRACE_RESTORE_ENTRY
+	br     x9
+13:                                        // Trace entry only.
+	TRACE_RESTORE_ENTRY
+	br     x9
+14:                                        // Interpose with the hook-returned IMP.
+	str    x0, [sp, #72]
+	TRACE_RESTORE_ENTRY
+	br     x9
+#else
 	br     x9                              // Tail-call the method
+#endif
 
 4:	                                       // Nil receiver
 	mov    \receiver, #0
@@ -183,15 +319,18 @@
 	EH_END_EPILOGUE
 	EH_END_AT_OFFSET(\fnname)
 
-	br     x9
+	b      7b
 6:
 										  // Load 63:12 of SmallObjectClasses address
 										  // We use the CDECL macro as Windows prefixes
 										  // cdecl conforming symbols with "_".
+#ifdef __APPLE__
+	adrp   x10, CDECL(SmallObjectClasses)@PAGE
+	add    x10, x10, CDECL(SmallObjectClasses)@PAGEOFF
+#else
 	adrp   x10, CDECL(SmallObjectClasses) // The macro handles this transparently.
-
-										  // Add lower 12-bits of SmallObjectClasses address to x10
 	add    x10, x10, :lo12:CDECL(SmallObjectClasses)
+#endif
 	ldr    x9, [x10, x9, lsl #3]
 
 	b      1b
