@@ -3,45 +3,13 @@
 #include "visibility.h"
 #include "objc/runtime/small-object.h"
 #include "sarray2.h"
+#include "bitfield.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
-/**
- * Overflow bitfield.  Used for bitfields that are more than 63 bits.
- */
-struct objc_bitfield
-{
-	/**
-	 * The number of elements in the values array.
-	 */
-	int32_t  length;
-	/**
-	 * An array of values.  Each 32 bits is stored in the native endian for the
-	 * platform.
-	 */
-	int32_t values[0];
-};
-
-static inline BOOL objc_bitfield_test(uintptr_t bitfield, uint64_t field)
-{
-	if (bitfield & 1)
-	{
-		uint64_t bit = 1<<(field+1);
-		return (bitfield & bit) == bit;
-	}
-	struct objc_bitfield *bf = (struct objc_bitfield*)bitfield;
-	uint64_t byte = field / 32;
-	if (byte >= bf->length)
-	{
-		return NO;
-	}
-	uint64_t bit = 1<<(field%32);
-	return (bf->values[byte] & bit) == bit;
-}
 
 // begin: objc_class
 struct objc_class
