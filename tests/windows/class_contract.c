@@ -97,6 +97,25 @@ int main(void)
 	CHECK(type != NULL && strcmp(type, "i") == 0);
 	free(type);
 	CHECK(property_copyAttributeValue(property, "V") == NULL);
+
+	// Regression for fuzz input 2f 7e 7e 3b: a valueless getter followed by
+	// an empty ivar attribute must not desynchronise attribute parsing.
+	objc_property_attribute_t fuzzAttributes[] = {{"G", NULL}, {"V", ""}};
+	CHECK(class_addProperty(cls, "fuzzMetadata", fuzzAttributes, 2) == YES);
+	objc_property_t fuzzProperty = class_getProperty(cls, "fuzzMetadata");
+	CHECK(fuzzProperty != NULL);
+	attributeCount = 0;
+	copiedAttributes = property_copyAttributeList(fuzzProperty, &attributeCount);
+	CHECK(copiedAttributes != NULL && attributeCount == 2);
+	CHECK(strcmp(copiedAttributes[0].name, "G") == 0);
+	CHECK(strcmp(copiedAttributes[0].value, "") == 0);
+	CHECK(strcmp(copiedAttributes[1].name, "V") == 0);
+	CHECK(strcmp(copiedAttributes[1].value, "") == 0);
+	free(copiedAttributes);
+	char *emptyGetter = property_copyAttributeValue(fuzzProperty, "G");
+	CHECK(emptyGetter != NULL && emptyGetter[0] == '\0');
+	free(emptyGetter);
+
 	CHECK(class_addProperty(cls, "invalid", NULL, 1) == NO);
 
 	Class replacement = objc_allocateClassPair(Nil, "MosaicClassContractReplacement", 0);

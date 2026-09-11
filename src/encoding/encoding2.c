@@ -82,6 +82,11 @@ static const char * findParameterStart(const char *types, unsigned int index)
 
 typedef const char *(*type_parser)(const char*, void*);
 
+static const char *sizeof_type_adapter(const char *type, void *context)
+{
+	return sizeof_type(type, (size_t*)context);
+}
+
 static int parse_array(const char **type, type_parser callback, void *context)
 {
 	// skip [
@@ -183,6 +188,11 @@ static const char *skip_object_extended_qualifiers(const char *type)
 
 static const char *sizeof_union_field(const char *type, size_t *size);
 
+static const char *sizeof_union_field_adapter(const char *type, void *context)
+{
+	return sizeof_union_field(type, (size_t*)context);
+}
+
 static const char *sizeof_type(const char *type, size_t *size)
 {
 	type = objc_skip_type_qualifiers(type);
@@ -226,7 +236,7 @@ static const char *sizeof_type(const char *type, size_t *size)
 		case '{':
 		{
 			const char *t = type;
-			parse_struct(&t, (type_parser)sizeof_type, size);
+			parse_struct(&t, sizeof_type_adapter, size);
 			size_t align = objc_alignof_type(type);
 			round_up(size, align * 8);
 			return t;
@@ -236,7 +246,7 @@ static const char *sizeof_type(const char *type, size_t *size)
 			const char *t = type;
 			size_t element_size = 0;
 			// FIXME: aligned size
-			int element_count = parse_array(&t, (type_parser)sizeof_type, &element_size);
+			int element_count = parse_array(&t, sizeof_type_adapter, &element_size);
 			(*size) += element_size * element_count;
 			return t;
 		}
@@ -244,7 +254,7 @@ static const char *sizeof_type(const char *type, size_t *size)
 		{
 			const char *t = type;
 			size_t union_size = 0;
-			parse_union(&t, (type_parser)sizeof_union_field, &union_size);
+			parse_union(&t, sizeof_union_field_adapter, &union_size);
 			*size += union_size;
 			return t;
 		}
@@ -279,6 +289,13 @@ static const char *sizeof_union_field(const char *type, size_t *size)
 	const char *end = sizeof_type(type, &field_size);
 	*size = max(*size, field_size);
 	return end;
+}
+
+static const char *alignof_type(const char *type, size_t *align);
+
+static const char *alignof_type_adapter(const char *type, void *context)
+{
+	return alignof_type(type, (size_t*)context);
 }
 
 static const char *alignof_type(const char *type, size_t *align)
@@ -321,19 +338,19 @@ static const char *alignof_type(const char *type, size_t *align)
 		case '{':
 		{
 			const char *t = type;
-			parse_struct(&t, (type_parser)alignof_type, align);
+			parse_struct(&t, alignof_type_adapter, align);
 			return t;
 		}
 		case '(':
 		{
 			const char *t = type;
-			parse_union(&t, (type_parser)alignof_type, align);
+			parse_union(&t, alignof_type_adapter, align);
 			return t;
 		}
 		case '[':
 		{
 			const char *t = type;
-			parse_array(&t, (type_parser)alignof_type, align);
+			parse_array(&t, alignof_type_adapter, align);
 			return t;
 		}
 		case 'b':
@@ -383,7 +400,8 @@ size_t objc_aligned_size(const char *type)
 {
 	size_t size  = objc_sizeof_type(type);
 	size_t align = objc_alignof_type(type);
-	return size + (size % align);
+	round_up(&size, align);
+	return size;
 }
 
 OBJC_PUBLIC
@@ -546,6 +564,11 @@ static const char *layout_structure_callback(const char *type, struct objc_struc
 	return end;
 }
 
+static const char *layout_structure_callback_adapter(const char *type, void *context)
+{
+	return layout_structure_callback(type, (struct objc_struct_layout*)context);
+}
+
 OBJC_PUBLIC
 BOOL objc_layout_structure_next_member(struct objc_struct_layout *layout)
 {
@@ -554,7 +577,7 @@ BOOL objc_layout_structure_next_member(struct objc_struct_layout *layout)
 	layout->record_align = 0;
 	layout->prev_type = layout->type;
 	const char *type = layout->original_type;
-	parse_struct(&type, (type_parser)layout_structure_callback, layout);
+	parse_struct(&type, layout_structure_callback_adapter, layout);
 	//printf("Calculated: (%s) %s %d %d\n", layout->original_type, layout->type, layout->record_size, layout->record_align);
 	//printf("old start %s, new start %s\n", end, layout->type);
 	return layout->type != end;

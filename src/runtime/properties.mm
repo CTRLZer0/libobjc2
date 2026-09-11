@@ -292,23 +292,6 @@ objc_property_t* class_copyPropertyList(Class cls, unsigned int *outCount)
 	}
 	return list;
 }
-static const char* property_getIVar(objc_property_t property)
-{
-	const char *iVar = property_getAttributes(property);
-	if (iVar != 0)
-	{
-		while ((*iVar != 0) && (*iVar != 'V'))
-		{
-			iVar++;
-		}
-		if (*iVar == 'V')
-		{
-			return iVar+1;
-		}
-	}
-	return 0;
-}
-
 OBJC_PUBLIC
 const char *property_getName(objc_property_t property)
 {
@@ -342,105 +325,121 @@ const char *property_getAttributes(objc_property_t property)
 }
 
 
+static BOOL nextPropertyAttributeToken(const char **cursor,
+                                       char *name,
+                                       const char **value,
+                                       size_t *valueLength)
+{
+	if ((cursor == NULL) || (*cursor == NULL)) { return NO; }
+	const char *token = *cursor;
+	while (*token == ',') { token++; }
+	if (*token == '\0')
+	{
+		*cursor = token;
+		return NO;
+	}
+	const char *end = strchr(token, ',');
+	if (end == NULL) { end = token + strlen(token); }
+	*name = *token;
+	*value = token + 1;
+	*valueLength = (size_t)(end - (token + 1));
+	*cursor = (*end == ',') ? end + 1 : end;
+	return YES;
+}
+
+static const char *propertyAttributeName(char name)
+{
+	switch (name)
+	{
+		case 'T': return "T";
+		case 'R': return "R";
+		case 'C': return "C";
+		case '&': return "&";
+		case 'D': return "D";
+		case 'W': return "W";
+		case 'N': return "N";
+		case 'G': return "G";
+		case 'S': return "S";
+		case 'V': return "V";
+		default: return NULL;
+	}
+}
+
+static BOOL propertyAttributeHasValue(char name)
+{
+	return (name == 'G') || (name == 'S') || (name == 'V');
+}
+
 OBJC_PUBLIC
 objc_property_attribute_t *property_copyAttributeList(objc_property_t property,
                                                       unsigned int *outCount)
 {
-	if (NULL == property)
-	{
-		if (NULL != outCount)
-		{
-			*outCount = 0;
-		}
-		return NULL;
-	}
-	objc_property_attribute_t attrs[12];
-	int count = 0;
+	if (outCount != NULL) { *outCount = 0; }
+	if (property == NULL) { return NULL; }
 
 	const char *types = property_getTypeEncoding(property);
-	if (NULL != types)
-	{
-		attrs[count].name = "T";
-		attrs[count].value = types;
-		count++;
-	}
-	// If the compiler provides a type encoding string, then it's more
-	// informative than the bitfields and should be treated as canonical.  If
-	// the compiler didn't provide a type encoding string, then this will
-	// create a best-effort one.
 	const char *attributes = property_getAttributes(property);
-	if (attributes == NULL)
+	size_t count = (types == NULL) ? 0 : 1;
+	size_t valueBytes = (types == NULL) ? 0 : strlen(types) + 1;
+
+	const char *cursor = attributes;
+	char name;
+	const char *value;
+	size_t valueLength;
+	while (nextPropertyAttributeToken(&cursor, &name, &value, &valueLength))
 	{
-		if (count == 0)
+		if ((name == 'T') || (propertyAttributeName(name) == NULL)) { continue; }
+		size_t storedLength = propertyAttributeHasValue(name) ? valueLength : 0;
+		size_t tokenBytes;
+		if ((count == UINT_MAX) ||
+		    !objc2_size_add(storedLength, 1, &tokenBytes) ||
+		    !objc2_size_add(valueBytes, tokenBytes, &valueBytes))
 		{
-			if (NULL != outCount) { *outCount = 0; }
 			return NULL;
-		}
-	}
-	for (size_t i=(types == NULL ? 0 : strlen(types)+1) ;
-	     attributes != NULL && attributes[i] != 0 ; i++)
-	{
-		if (count >= (int)(sizeof(attrs) / sizeof(attrs[0])))
-		{
-			if (NULL != outCount) { *outCount = 0; }
-			return NULL;
-		}
-		if (attributes[i] == ',')
-		{
-			// Comma is never the last character in the string, so this should
-			// never push us past the end.
-			i++;
-		}
-		attrs[count].value = "";
-		switch (attributes[i])
-		{
-			case 'R':
-				attrs[count].name = "R";
-				break;
-			case 'C':
-				attrs[count].name = "C";
-				break;
-			case '&':
-				attrs[count].name = "&";
-				break;
-			case 'D':
-				attrs[count].name = "D";
-				break;
-			case 'W':
-				attrs[count].name = "W";
-				break;
-			case 'N':
-				attrs[count].name = "N";
-				break;
-			case 'G':
-				attrs[count].name = "G";
-				attrs[count].value = sel_getName(property->getter);
-				i += strlen(attrs[count].value);
-				break;
-			case 'S':
-				attrs[count].name = "S";
-				attrs[count].value = sel_getName(property->setter);
-				i += strlen(attrs[count].value);
-				break;
-			case 'V':
-				attrs[count].name = "V";
-				attrs[count].value = attributes+i+1;
-				i += strlen(attributes+i)-1;
-				break;
-			default:
-				continue;
 		}
 		count++;
 	}
-	objc_property_attribute_t *propAttrs = allocate_zeroed_array<objc_property_attribute_t>(count);
-	if (propAttrs == NULL)
+	if (count == 0) { return NULL; }
+
+	size_t arrayBytes;
+	size_t allocationSize;
+	if (!objc2_size_multiply(count, sizeof(objc_property_attribute_t), &arrayBytes) ||
+	    !objc2_size_add(arrayBytes, valueBytes, &allocationSize))
 	{
-		if (NULL != outCount) { *outCount = 0; }
 		return NULL;
 	}
-	memcpy(propAttrs, attrs, count * sizeof(objc_property_attribute_t));
-	if (NULL != outCount) { *outCount = count; }
-	return propAttrs;
+	objc_property_attribute_t *result =
+		static_cast<objc_property_attribute_t*>(calloc(1, allocationSize));
+	if (result == NULL) { return NULL; }
+	char *valueOut = reinterpret_cast<char*>(result) + arrayBytes;
+	size_t out = 0;
+
+	if (types != NULL)
+	{
+		result[out].name = "T";
+		result[out].value = valueOut;
+		size_t length = strlen(types);
+		memcpy(valueOut, types, length + 1);
+		valueOut += length + 1;
+		out++;
+	}
+
+	cursor = attributes;
+	while (nextPropertyAttributeToken(&cursor, &name, &value, &valueLength))
+	{
+		const char *attributeName = propertyAttributeName(name);
+		if ((name == 'T') || (attributeName == NULL)) { continue; }
+		result[out].name = attributeName;
+		result[out].value = valueOut;
+		size_t storedLength = propertyAttributeHasValue(name) ? valueLength : 0;
+		if (storedLength != 0) { memcpy(valueOut, value, storedLength); }
+		valueOut[storedLength] = '\0';
+		valueOut += storedLength + 1;
+		out++;
+	}
+	assert(out == count);
+	if (outCount != NULL) { *outCount = (unsigned int)out; }
+	return result;
 }
 
 static const objc_property_attribute_t *findAttribute(char attr,
@@ -629,48 +628,48 @@ void class_replaceProperty(Class cls,
 	LOCK_RUNTIME_FOR_SCOPE();
 	memcpy(old, &p, sizeof(struct objc_property));
 }
+static char *copyPropertyAttributeTokenValue(const char *attributes, char requested)
+{
+	const char *cursor = attributes;
+	char name;
+	const char *value;
+	size_t valueLength;
+	while (nextPropertyAttributeToken(&cursor, &name, &value, &valueLength))
+	{
+		if (name != requested) { continue; }
+		char *copy = static_cast<char*>(malloc(valueLength + 1));
+		if (copy == NULL) { return NULL; }
+		if (valueLength != 0) { memcpy(copy, value, valueLength); }
+		copy[valueLength] = '\0';
+		return copy;
+	}
+	return NULL;
+}
+
 OBJC_PUBLIC
 char *property_copyAttributeValue(objc_property_t property,
                                   const char *attributeName)
 {
-	if ((NULL == property) || (NULL == attributeName)) { return NULL; }
-	const char *attributes = property_getAttributes(property);
-	switch (attributeName[0])
+	if ((property == NULL) || (attributeName == NULL) || (attributeName[0] == '\0'))
 	{
-		case 'T':
-		{
-			const char *types = property_getTypeEncoding(property);
-			return (NULL == types) ? NULL : objc2_strdup(types);
-		}
-		case 'D':
-		case 'R':
-		case 'W':
-		case 'C':
-		case '&':
-		case 'N':
-		{
-			return (attributes != NULL && strchr(attributes, attributeName[0]))
-				? objc2_strdup("") : NULL;
-		}
-		case 'V':
-		{
-			const char *ivar = property_getIVar(property);
-			return (ivar == NULL) ? NULL : objc2_strdup(ivar);
-		}
-		case 'S':
-		{
-			if (property->setter == NULL) { return NULL; }
-			const char *setter = sel_getName(property->setter);
-			return (setter == NULL) ? NULL : objc2_strdup(setter);
-		}
-		case 'G':
-		{
-			if (property->getter == NULL) { return NULL; }
-			const char *getter = sel_getName(property->getter);
-			return (getter == NULL) ? NULL : objc2_strdup(getter);
-		}
+		return NULL;
 	}
-	return 0;
+	if (attributeName[0] == 'T')
+	{
+		const char *types = property_getTypeEncoding(property);
+		return (types == NULL) ? NULL : objc2_strdup(types);
+	}
+	if (propertyAttributeName(attributeName[0]) == NULL) { return NULL; }
+	if (!propertyAttributeHasValue(attributeName[0]))
+	{
+		char *value = copyPropertyAttributeTokenValue(property_getAttributes(property),
+		                                              attributeName[0]);
+		if (value != NULL) { value[0] = '\0'; }
+		return value;
+	}
+	return copyPropertyAttributeTokenValue(property_getAttributes(property),
+	                                       attributeName[0]);
 }
+
 
 } // extern "C"
