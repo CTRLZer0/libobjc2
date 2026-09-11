@@ -479,6 +479,17 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 		}
 		registerProtocol((struct objc_protocol*)proto);
 	}
+	// All protocol names in this image are known now.  Canonicalize adopted
+	// protocol references after duplicate definitions have been merged.
+	for (struct objc_protocol *proto = init->proto_begin ; proto < init->proto_end ; proto++)
+	{
+		if (proto->name == NULL) { continue; }
+		Protocol *canonical = objc_getProtocol(proto->name);
+		if ((canonical != NULL) && (canonical->protocol_list != NULL))
+		{
+			objc_init_protocols(canonical->protocol_list);
+		}
+	}
 	for (struct objc_protocol **proto = init->proto_ref_begin ; proto < init->proto_ref_end ;
 	     proto++)
 	{

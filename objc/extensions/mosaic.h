@@ -21,6 +21,8 @@ extern "C" {
  * GNUstep Objective-C module. Mosaic uses its own Mach-O metadata loader.
  */
 OBJC_PUBLIC void mosaic_objc_runtime_initialize(void);
+/** Number of incompatible duplicate protocol members observed during merges. */
+OBJC_PUBLIC uint64_t mosaic_objc_runtimeGetProtocolConflictCount(void);
 
 /** Opaque handle for a compiler-emitted Objective-C image known to the runtime. */
 typedef struct mosaic_objc_image_record *mosaic_objc_image_t;

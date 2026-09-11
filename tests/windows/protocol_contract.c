@@ -151,6 +151,42 @@ int main(void)
     CHECK(protocol_list_contains(known, known_count, adopted_b));
     free(known);
 
+    uint64_t conflicts_before = mosaic_objc_runtimeGetProtocolConflictCount();
+    Protocol *merge_a = objc_allocateProtocol("MosaicProtocolContractMerge");
+    Protocol *merge_b = objc_allocateProtocol("MosaicProtocolContractMerge");
+    Protocol *merge_conflict = objc_allocateProtocol("MosaicProtocolContractMerge");
+    CHECK(merge_a != NULL && merge_b != NULL && merge_conflict != NULL);
+    SEL merge_shared = sel_registerName("mosaicProtocolMergeShared");
+    SEL merge_second = sel_registerName("mosaicProtocolMergeSecond");
+    protocol_addMethodDescription(merge_a, merge_shared, "v@:", YES, YES);
+    protocol_addMethodDescription(merge_b, merge_shared, "v@:", YES, YES);
+    protocol_addMethodDescription(merge_b, merge_second, "i@:", YES, YES);
+    protocol_addMethodDescription(merge_conflict, merge_shared, "i@:", YES, YES);
+    protocol_addProtocol(merge_a, adopted_a);
+    protocol_addProtocol(merge_b, adopted_b);
+    protocol_addProperty(merge_a, "mergeFirstProperty", object_attr, 1, YES, YES);
+    protocol_addProperty(merge_b, "mergeSecondProperty", object_attr, 1, NO, YES);
+    protocol_addProperty(merge_b, "mergeClassProperty", object_attr, 1, YES, NO);
+
+    objc_registerProtocol(merge_a);
+    objc_registerProtocol(merge_b);
+    objc_registerProtocol(merge_conflict);
+    Protocol *merged = objc_getProtocol("MosaicProtocolContractMerge");
+    CHECK(merged == merge_a);
+    description = protocol_getMethodDescription(merged, merge_shared, YES, YES);
+    CHECK(description.name == merge_shared && strcmp(description.types, "v@:") == 0);
+    description = protocol_getMethodDescription(merged, merge_second, YES, YES);
+    CHECK(description.name == merge_second && strcmp(description.types, "i@:") == 0);
+    adopted = protocol_copyProtocolList(merged, &adopted_count);
+    CHECK(adopted != NULL && adopted_count == 2);
+    CHECK(protocol_list_contains(adopted, adopted_count, adopted_a));
+    CHECK(protocol_list_contains(adopted, adopted_count, adopted_b));
+    free(adopted);
+    CHECK(protocol_getProperty(merged, "mergeFirstProperty", YES, YES) != NULL);
+    CHECK(protocol_getProperty(merged, "mergeSecondProperty", NO, YES) != NULL);
+    CHECK(protocol_getProperty(merged, "mergeClassProperty", YES, NO) != NULL);
+    CHECK(mosaic_objc_runtimeGetProtocolConflictCount() == conflicts_before + 1);
+
     SEL late = sel_registerName("mosaicProtocolLateMutation");
     protocol_addMethodDescription(base, late, "v@:", YES, YES);
     description = protocol_getMethodDescription(base, late, YES, YES);

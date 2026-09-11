@@ -66,6 +66,26 @@ static BOOL protocol_hasOptionalMethodsAndProperties(struct objc_protocol *p)
 	return YES;
 }
 
+static uint64_t protocol_merge_conflicts;
+
+uint64_t mosaic_objc_runtimeGetProtocolConflictCount(void)
+{
+	return __atomic_load_n(&protocol_merge_conflicts, __ATOMIC_RELAXED);
+}
+
+static BOOL protocol_string_equal(const char *a, const char *b)
+{
+	return (a == b) || ((a != NULL) && (b != NULL) && (strcmp(a, b) == 0));
+}
+
+static void protocol_report_conflict(const char *protocolName,
+                                     const char *kind, const char *member)
+{
+	__atomic_add_fetch(&protocol_merge_conflicts, 1, __ATOMIC_RELAXED);
+	fprintf(stderr, "objc: conflicting %s '%s' in protocol %s; keeping first definition\n",
+	        kind, member ? member : "<unnamed>", protocolName ? protocolName : "<unnamed>");
+}
+
 static int isEmptyProtocol(struct objc_protocol *aProto)
 {
 	int isEmpty =
@@ -83,68 +103,247 @@ static int isEmptyProtocol(struct objc_protocol *aProto)
 			(aProto->optional_class_methods->count == 0);
 		isEmpty &= (aProto->properties == 0) || (aProto->properties->count == 0);
 		isEmpty &= (aProto->optional_properties == 0) || (aProto->optional_properties->count == 0);
+		if (protocol_hasClassProperties(aProto))
+		{
+			isEmpty &= (aProto->class_properties == 0) || (aProto->class_properties->count == 0);
+			isEmpty &= (aProto->optional_class_properties == 0) || (aProto->optional_class_properties->count == 0);
+		}
 	}
 	return isEmpty;
 }
 
-// FIXME: Make p1 adopt all of the stuff in p2
+static const char *protocol_selector_name(SEL selector)
+{
+	return selector ? sel_getName(selector) : NULL;
+}
+
+static int protocol_find_method(struct objc_protocol_method_description_list *list,
+                                SEL selector)
+{
+	if ((list == NULL) || (list->count <= 0) ||
+	    (list->size < (int)sizeof(struct objc_protocol_method_description))) { return -1; }
+	const char *name = protocol_selector_name(selector);
+	for (int i = 0; i < list->count; i++)
+	{
+		struct objc_protocol_method_description *method = protocol_method_at_index(list, i);
+		if (protocol_string_equal(protocol_selector_name(method->selector), name)) { return i; }
+	}
+	return -1;
+}
+
+static struct objc_protocol_method_description_list *
+protocol_merge_methods(struct objc_protocol_method_description_list *first,
+                       struct objc_protocol_method_description_list *second,
+                       const char *protocolName, const char *kind)
+{
+	if (second == NULL || second->count <= 0) { return first; }
+	if ((second->size < (int)sizeof(struct objc_protocol_method_description)) ||
+	    (second->count < 0))
+	{
+		protocol_report_conflict(protocolName, kind, "<invalid-list>");
+		return first;
+	}
+	if ((first != NULL) && ((first->count < 0) ||
+	    (first->size < (int)sizeof(struct objc_protocol_method_description))))
+	{
+		protocol_report_conflict(protocolName, kind, "<invalid-canonical-list>");
+		return first;
+	}
+	size_t firstCount = first ? (size_t)first->count : 0;
+	size_t secondCount = (size_t)second->count;
+	if ((firstCount > INT_MAX) || (secondCount > INT_MAX) ||
+	    (secondCount > (size_t)INT_MAX - firstCount)) { abort(); }
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_protocol_method_description_list),
+	                               firstCount + secondCount,
+	                               sizeof(struct objc_protocol_method_description),
+	                               &allocationSize)) { abort(); }
+	struct objc_protocol_method_description_list *merged = calloc(1, allocationSize);
+	if (merged == NULL) { abort(); }
+	merged->size = sizeof(struct objc_protocol_method_description);
+	for (size_t i = 0; i < firstCount; i++)
+	{
+		*protocol_method_at_index(merged, (int)i) = *protocol_method_at_index(first, (int)i);
+	}
+	merged->count = (int)firstCount;
+	for (int i = 0; i < second->count; i++)
+	{
+		struct objc_protocol_method_description *candidate = protocol_method_at_index(second, i);
+		int existing = protocol_find_method(merged, candidate->selector);
+		if (existing >= 0)
+		{
+			struct objc_protocol_method_description *current = protocol_method_at_index(merged, existing);
+			if (!protocol_string_equal(current->types, candidate->types))
+			{
+				protocol_report_conflict(protocolName, kind, protocol_selector_name(candidate->selector));
+			}
+			continue;
+		}
+		*protocol_method_at_index(merged, merged->count++) = *candidate;
+	}
+	return merged;
+}
+
+static BOOL protocol_property_equal(const struct objc_property *a,
+                                    const struct objc_property *b)
+{
+	return protocol_string_equal(a->attributes, b->attributes) &&
+	       protocol_string_equal(a->type, b->type) &&
+	       protocol_string_equal(protocol_selector_name(a->getter), protocol_selector_name(b->getter)) &&
+	       protocol_string_equal(protocol_selector_name(a->setter), protocol_selector_name(b->setter));
+}
+
+static size_t protocol_property_count(struct objc_property_list *list)
+{
+	size_t count = 0;
+	for (; list != NULL; list = list->next)
+	{
+		if ((list->count < 0) || (list->size < (int)sizeof(struct objc_property))) { return SIZE_MAX; }
+		if ((size_t)list->count > SIZE_MAX - count) { return SIZE_MAX; }
+		count += (size_t)list->count;
+	}
+	return count;
+}
+
+static struct objc_property_list *
+protocol_merge_properties(struct objc_property_list *first,
+                          struct objc_property_list *second,
+                          const char *protocolName, const char *kind)
+{
+	if (second == NULL) { return first; }
+	size_t firstCount = protocol_property_count(first);
+	size_t secondCount = protocol_property_count(second);
+	if ((firstCount == SIZE_MAX) || (secondCount == SIZE_MAX) ||
+	    (firstCount > INT_MAX) || (secondCount > (size_t)INT_MAX - firstCount))
+	{
+		protocol_report_conflict(protocolName, kind, "<invalid-list>");
+		return first;
+	}
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_property_list), firstCount + secondCount,
+	                               sizeof(struct objc_property), &allocationSize)) { abort(); }
+	struct objc_property_list *merged = calloc(1, allocationSize);
+	if (merged == NULL) { abort(); }
+	merged->size = sizeof(struct objc_property);
+	for (struct objc_property_list *list = first; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			*property_at_index(merged, merged->count++) = *property_at_index(list, i);
+		}
+	}
+	for (struct objc_property_list *list = second; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			struct objc_property *candidate = property_at_index(list, i);
+			int found = -1;
+			for (int j = 0; j < merged->count; j++)
+			{
+				if (protocol_string_equal(property_at_index(merged, j)->name, candidate->name)) { found = j; break; }
+			}
+			if (found >= 0)
+			{
+				if (!protocol_property_equal(property_at_index(merged, found), candidate))
+				{
+					protocol_report_conflict(protocolName, kind, candidate->name);
+				}
+				continue;
+			}
+			*property_at_index(merged, merged->count++) = *candidate;
+		}
+	}
+	return merged;
+}
+
+static struct objc_protocol_list *
+protocol_merge_adopted(struct objc_protocol_list *first, struct objc_protocol_list *second)
+{
+	if (second == NULL) { return first; }
+	size_t capacity = 0;
+	for (struct objc_protocol_list *list = first; list != NULL; list = list->next)
+	{
+		if (list->count > SIZE_MAX - capacity) { abort(); }
+		capacity += list->count;
+	}
+	for (struct objc_protocol_list *list = second; list != NULL; list = list->next)
+	{
+		if (list->count > SIZE_MAX - capacity) { abort(); }
+		capacity += list->count;
+	}
+	size_t allocationSize;
+	if (!objc2_flexible_array_size(sizeof(struct objc_protocol_list), capacity,
+	                               sizeof(struct objc_protocol*), &allocationSize)) { abort(); }
+	struct objc_protocol_list *merged = calloc(1, allocationSize);
+	if (merged == NULL) { abort(); }
+	struct objc_protocol_list *sources[2] = { first, second };
+	for (int source = 0; source < 2; source++)
+	{
+		for (struct objc_protocol_list *list = sources[source]; list != NULL; list = list->next)
+		{
+			for (size_t i = 0; i < list->count; i++)
+			{
+				struct objc_protocol *candidate = list->list[i];
+				if ((candidate == NULL) || (candidate->name == NULL)) { continue; }
+				BOOL found = NO;
+				for (size_t j = 0; j < merged->count; j++)
+				{
+					if (protocol_string_equal(merged->list[j]->name, candidate->name)) { found = YES; break; }
+				}
+				if (!found) { merged->list[merged->count++] = candidate; }
+			}
+		}
+	}
+	return merged;
+}
+
 static void makeProtocolEqualToProtocol(struct objc_protocol *p1,
                                         struct objc_protocol *p2)
 {
-#define COPY(x) p1->x = p2->x
-	COPY(instance_methods);
-	COPY(class_methods);
-	COPY(protocol_list);
+	p1->instance_methods = protocol_merge_methods(p1->instance_methods, p2->instance_methods,
+	                                              p1->name, "required instance method");
+	p1->class_methods = protocol_merge_methods(p1->class_methods, p2->class_methods,
+	                                           p1->name, "required class method");
+	p1->protocol_list = protocol_merge_adopted(p1->protocol_list, p2->protocol_list);
 	if (protocol_hasOptionalMethodsAndProperties(p1) &&
-		protocol_hasOptionalMethodsAndProperties(p2))
+	    protocol_hasOptionalMethodsAndProperties(p2))
 	{
-		COPY(optional_instance_methods);
-		COPY(optional_class_methods);
-		COPY(properties);
-		COPY(optional_properties);
+		p1->optional_instance_methods = protocol_merge_methods(
+		    p1->optional_instance_methods, p2->optional_instance_methods, p1->name,
+		    "optional instance method");
+		p1->optional_class_methods = protocol_merge_methods(
+		    p1->optional_class_methods, p2->optional_class_methods, p1->name,
+		    "optional class method");
+		p1->properties = protocol_merge_properties(p1->properties, p2->properties,
+		                                          p1->name, "required instance property");
+		p1->optional_properties = protocol_merge_properties(
+		    p1->optional_properties, p2->optional_properties, p1->name,
+		    "optional instance property");
+		if (protocol_hasClassProperties(p1) && protocol_hasClassProperties(p2))
+		{
+			p1->class_properties = protocol_merge_properties(
+			    p1->class_properties, p2->class_properties, p1->name,
+			    "required class property");
+			p1->optional_class_properties = protocol_merge_properties(
+			    p1->optional_class_properties, p2->optional_class_properties, p1->name,
+			    "optional class property");
+		}
 	}
-#undef COPY
 }
 
 static struct objc_protocol *unique_protocol(struct objc_protocol *aProto)
 {
-	struct objc_protocol *oldProtocol =
-		protocol_for_name(aProto->name);
-	if (NULL == oldProtocol)
+	struct objc_protocol *oldProtocol = protocol_for_name(aProto->name);
+	if (oldProtocol == NULL)
 	{
-		// This is the first time we've seen this protocol, so add it to the
-		// hash table and ignore it.
 		protocol_table_insert(aProto);
 		return aProto;
 	}
-	if (isEmptyProtocol(oldProtocol))
+	if (oldProtocol != aProto)
 	{
-		if (isEmptyProtocol(aProto))
-		{
-			return aProto;
-			// Add protocol to a list somehow.
-		}
-		else
-		{
-			// This protocol is not empty, so we use its definitions
-			makeProtocolEqualToProtocol(oldProtocol, aProto);
-			return aProto;
-		}
+		makeProtocolEqualToProtocol(oldProtocol, aProto);
 	}
-	else
-	{
-		if (isEmptyProtocol(aProto))
-		{
-			makeProtocolEqualToProtocol(aProto, oldProtocol);
-			return oldProtocol;
-		}
-		else
-		{
-			return oldProtocol;
-			//FIXME: We should really perform a check here to make sure the
-			//protocols are actually the same.
-		}
-	}
+	return oldProtocol;
 }
 
 static BOOL init_protocols(struct objc_protocol_list *protocols)
@@ -548,23 +747,32 @@ Protocol *objc_allocateProtocol(const char *name)
 	}
 	return p;
 }
+static Protocol *register_protocol_definition(Protocol *proto)
+{
+	Protocol *existing = protocol_for_name(proto->name);
+	proto->isa = (id)&_OBJC_CLASS_Protocol;
+	if (existing == NULL)
+	{
+		protocol_table_insert(proto);
+		return proto;
+	}
+	makeProtocolEqualToProtocol(existing, proto);
+	return existing;
+}
+
 void objc_registerProtocol(Protocol *proto)
 {
 	if (NULL == proto) { return; }
 	LOCK_FOR_SCOPE(&protocol_table_lock);
-	if ((NULL == proto->name) || (protocol_for_name(proto->name) != NULL)) { return; }
-	if (proto->isa != (id)&_OBJC_CLASS___IncompleteProtocol) { return; }
-	proto->isa = (id)&_OBJC_CLASS_Protocol;
-	protocol_table_insert(proto);
+	if ((NULL == proto->name) ||
+	    (proto->isa != (id)&_OBJC_CLASS___IncompleteProtocol)) { return; }
+	(void)register_protocol_definition(proto);
 }
 PRIVATE void registerProtocol(Protocol *proto)
 {
+	if ((proto == NULL) || (proto->name == NULL)) { return; }
 	LOCK_FOR_SCOPE(&protocol_table_lock);
-	proto->isa = (id)&_OBJC_CLASS_Protocol;
-	if (protocol_for_name(proto->name) == NULL)
-	{
-		protocol_table_insert(proto);
-	}
+	(void)register_protocol_definition(proto);
 }
 void protocol_addMethodDescription(Protocol *aProtocol,
                                    SEL name,
