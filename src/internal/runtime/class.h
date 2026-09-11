@@ -316,6 +316,8 @@ enum objc_class_flags
 	 * the underlying blocks runtime.
 	 */
 	objc_class_flag_is_block = (1 << 16),
+	/** Runtime owns the contiguous ivar-offset storage for this dynamic class. */
+	objc_class_flag_owned_ivar_offsets = (1 << 17),
 };
 
 /**

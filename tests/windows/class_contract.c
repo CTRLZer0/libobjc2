@@ -6,6 +6,7 @@
  */
 #include "test_support.h"
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
@@ -28,6 +29,17 @@ static int method_list_contains(Method *list, unsigned int count, SEL selector)
 int main(void)
 {
 	mosaic_objc_runtime_initialize();
+
+	CHECK(objc_allocateClassPair(Nil, NULL, 0) == Nil);
+	CHECK(objc_allocateClassPair(Nil, "MosaicClassOverflow", SIZE_MAX) == Nil);
+	CHECK(objc_allocateClassPair(Nil, "MosaicClassTooLarge", (size_t)PTRDIFF_MAX) == Nil);
+
+	Class disposable = objc_allocateClassPair(Nil, "MosaicUnregisteredDispose", 0);
+	CHECK(disposable != Nil);
+	uint8_t disposableAlignment = sizeof(void*) == 8 ? 3 : 2;
+	CHECK(class_addIvar(disposable, "payload", sizeof(void*), disposableAlignment, "@") == YES);
+	objc_disposeClassPair(disposable);
+	CHECK(objc_lookUpClass("MosaicUnregisteredDispose") == Nil);
 
 	Class cls = objc_allocateClassPair(Nil, "MosaicClassContract", 0);
 	CHECK(cls != Nil);

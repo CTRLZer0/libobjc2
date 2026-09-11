@@ -675,10 +675,10 @@ PRIVATE void freeIvarLists(Class aClass)
 	struct objc_ivar_list *ivarlist = aClass->ivars;
 	if (NULL == ivarlist) { return; }
 
-	if (ivarlist->count > 0)
+	if ((ivarlist->count > 0) &&
+	    objc_test_class_flag(aClass, objc_class_flag_owned_ivar_offsets))
 	{
-		// For dynamically created classes, ivar offset variables are allocated
-		// as a contiguous range starting with the first one.
+		// Registered dynamically-created classes own one contiguous offset array.
 		free(ivar_at_index(ivarlist, 0)->offset);
 	}
 
@@ -729,7 +729,10 @@ void objc_disposeClassPair(Class cls)
 		LOCK_RUNTIME_FOR_SCOPE();
 		safe_remove_from_subclass_list(meta);
 		safe_remove_from_subclass_list(cls);
-		class_table_remove(cls);
+		if (objc_lookUpClass(cls->name) == cls)
+		{
+			class_table_remove(cls);
+		}
 	}
 
 	// Free the method and ivar lists.
@@ -745,6 +748,8 @@ void objc_disposeClassPair(Class cls)
 		free_dtable(meta->dtable);
 	}
 
+	// User-created class and metaclass share one runtime-owned name copy.
+	free((void*)cls->name);
 	// Free the class and metaclass
 	gc->free(meta);
 	gc->free(cls);
@@ -752,59 +757,59 @@ void objc_disposeClassPair(Class cls)
 
 Class objc_allocateClassPair(Class superclass, const char *name, size_t extraBytes)
 {
+	if (name == NULL) { return Nil; }
 	// Check the class doesn't already exist.
 	if (nil != objc_lookUpClass(name)) { return Nil; }
 
-	Class newClass = gc->malloc(sizeof(struct objc_class) + extraBytes);
+	size_t classSize;
+	if (!objc2_size_add(sizeof(struct objc_class), extraBytes, &classSize) ||
+	    (classSize > (size_t)PTRDIFF_MAX))
+	{
+		return Nil;
+	}
 
+	Class newClass = gc->malloc(classSize);
 	if (Nil == newClass) { return Nil; }
 
-	// Create the metaclass
 	Class metaClass = gc->malloc(sizeof(struct objc_class));
+	if (Nil == metaClass)
+	{
+		gc->free(newClass);
+		return Nil;
+	}
+
+	char *nameCopy = objc2_strdup(name);
+	if (nameCopy == NULL)
+	{
+		gc->free(metaClass);
+		gc->free(newClass);
+		return Nil;
+	}
 
 	if (Nil == superclass)
 	{
-		/*
-		 * Metaclasses of root classes are precious little flowers and work a
-		 * little differently:
-		 */
 		metaClass->isa = metaClass;
 		metaClass->super_class = newClass;
 	}
 	else
 	{
-		// Initialize the metaclass
-		// Set the meta-metaclass pointer to the name.  The runtime will fix this
-		// in objc_resolve_class().
-		// If the superclass is not yet resolved, then we need to look it up
-		// via the class table.
 		metaClass->isa = superclass->isa;
 		metaClass->super_class = superclass->isa;
 	}
-	metaClass->name = objc2_strdup(name);
+	metaClass->name = nameCopy;
 	metaClass->info = objc_class_flag_meta | objc_class_flag_user_created;
 	metaClass->dtable = uninstalled_dtable;
 	metaClass->instance_size = sizeof(struct objc_class);
 
-	// Set up the new class
 	newClass->isa = metaClass;
 	newClass->super_class = superclass;
-
-	newClass->name = objc2_strdup(name);
+	newClass->name = nameCopy;
 	newClass->info = objc_class_flag_user_created;
 	newClass->dtable = uninstalled_dtable;
-
 	newClass->abi_version = 2;
 	metaClass->abi_version = 2;
-
-	if (Nil == superclass)
-	{
-		newClass->instance_size = sizeof(struct objc_class*);
-	}
-	else
-	{
-		newClass->instance_size = superclass->instance_size;
-	}
+	newClass->instance_size = (Nil == superclass)
+		? sizeof(struct objc_class*) : superclass->instance_size;
 
 	return newClass;
 }
@@ -850,14 +855,25 @@ const char *object_getClassName(id obj)
 
 void objc_registerClassPair(Class cls)
 {
-	if (cls->ivars != NULL)
+	if (cls == Nil) { return; }
+	if ((cls->ivars != NULL) &&
+	    !objc_test_class_flag(cls, objc_class_flag_owned_ivar_offsets))
 	{
-		int *ptrs = calloc(cls->ivars->count, sizeof(int));
-		for (int i=0 ; i<cls->ivars->count ; i++)
+		if (cls->ivars->count < 0) { return; }
+		size_t count = (size_t)cls->ivars->count;
+		size_t bytes;
+		if (!objc2_size_multiply(count, sizeof(int), &bytes)) { return; }
+		int *ptrs = count == 0 ? NULL : calloc(1, bytes);
+		if ((count != 0) && (ptrs == NULL)) { return; }
+		for (size_t i = 0; i < count; i++)
 		{
-			ptrs[i] = (int)(intptr_t)ivar_at_index(cls->ivars, i)->offset;
-			ivar_at_index(cls->ivars, i)->offset = &ptrs[i];
+			ptrs[i] = (int)(intptr_t)ivar_at_index(cls->ivars, (int)i)->offset;
 		}
+		for (size_t i = 0; i < count; i++)
+		{
+			ivar_at_index(cls->ivars, (int)i)->offset = &ptrs[i];
+		}
+		objc_set_class_flag(cls, objc_class_flag_owned_ivar_offsets);
 	}
 	LOCK_RUNTIME_FOR_SCOPE();
 	class_table_insert(cls);
