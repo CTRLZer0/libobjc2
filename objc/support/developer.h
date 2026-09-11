@@ -16,20 +16,18 @@ enum objc_developer_mode_np
 	/** User mode - the default. */
 	objc_developer_mode_user,
 	/** Developer mode - allows replacing classes. */
-	objc_developer_mode_developer
+	objc_developer_mode_developer,
+	/** Safe reload mode - only overlays classes with ABI-compatible layouts. */
+	objc_developer_mode_safe_reload
 };
 /*
  * Sets the developer mode.  When in user mode (the default),
  * loading two classes with the same name will cause the program to abort.  In
- * developer mode, the new class will replace the old one.  If the ivar layouts
- * are the same, the new class will be treated as a category.  If they are
- * different, then it will replace the old one in the class table, meaning that
- * message sends to the class will go to the new version, but existing
- * instances will not acquire the new methods.
- *
- * The runtime currently only supports two modes, although more may be added in
- * the future.  The behaviour of the existing modes will be maintained if this
- * is the case.
+ * developer mode, the new class will replace the old one when layouts differ.
+ * In safe reload mode, only layout-compatible definitions are overlaid; an
+ * incompatible definition is rejected and the canonical class is unchanged.
+ * This mode is intended for live-reload tooling that must preserve existing
+ * instance and subclass validity.
  */
 OBJC_PUBLIC void objc_setDeveloperMode_np(enum objc_developer_mode_np);
 

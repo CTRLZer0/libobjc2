@@ -10,13 +10,17 @@
 #include "legacy.h"
 #include "visibility.h"
 #include "crt_compat.h"
+#include "allocation.h"
+#include "observability.h"
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 
 typedef void (*loadIMP)(Class, SEL);
 
 void objc_init_protocols(struct objc_protocol_list *protos);
 void objc_compute_ivar_offsets(Class class);
+void objc_register_selectors_from_class(Class class);
 
 ////////////////////////////////////////////////////////////////////////////////
 // +load method hash table
@@ -471,30 +475,424 @@ PRIVATE void __objc_resolve_class_links(void)
 	objc_resolve_class_links();
 }
 
-static void reload_class(struct objc_class *class, struct objc_class *old)
+static BOOL reload_string_equal(const char *a, const char *b)
+{
+	return (a == b) || ((a != NULL) && (b != NULL) && (strcmp(a, b) == 0));
+}
+
+static BOOL safe_reload_superclass_matches(Class candidate, Class canonical)
+{
+	Class candidateSuper = candidate->super_class;
+	Class canonicalSuper = canonical->super_class;
+	if (candidateSuper == canonicalSuper) { return YES; }
+	if ((candidateSuper == Nil) || (canonicalSuper == Nil)) { return NO; }
+	// Compiler-emitted metadata stores the superclass name in this field until
+	// class resolution.  Do not dereference it as a Class before resolving it.
+	Class resolved = class_table_get_safe((const char*)candidateSuper);
+	return resolved == canonicalSuper;
+}
+
+static struct objc_ivar_list *copy_reload_ivars(struct objc_ivar_list *source,
+                                                int **offsetStorage)
+{
+	*offsetStorage = NULL;
+	if (source == NULL) { return NULL; }
+	if ((source->count < 0) || (source->size < sizeof(struct objc_ivar))) { return NULL; }
+	size_t payload = 0;
+	size_t bytes = 0;
+	if (!objc2_size_multiply((size_t)source->count, source->size, &payload) ||
+	    !objc2_size_add(sizeof(struct objc_ivar_list), payload, &bytes))
+	{
+		return NULL;
+	}
+	struct objc_ivar_list *copy = malloc(bytes);
+	if (copy == NULL) { return NULL; }
+	memcpy(copy, source, bytes);
+	if (source->count == 0) { return copy; }
+	size_t offsetBytes = 0;
+	if (!objc2_size_multiply((size_t)source->count, sizeof(int), &offsetBytes))
+	{
+		free(copy);
+		return NULL;
+	}
+	int *offsets = malloc(offsetBytes);
+	if (offsets == NULL)
+	{
+		free(copy);
+		return NULL;
+	}
+	for (int i = 0; i < source->count; i++)
+	{
+		struct objc_ivar *src = ivar_at_index(source, i);
+		struct objc_ivar *dst = ivar_at_index(copy, i);
+		if (src->offset == NULL)
+		{
+			free(offsets);
+			free(copy);
+			return NULL;
+		}
+		offsets[i] = *src->offset;
+		dst->offset = &offsets[i];
+	}
+	*offsetStorage = offsets;
+	return copy;
+}
+
+static BOOL safe_reload_layout_matches(Class candidate, Class canonical,
+                                       const char **reason)
+{
+	if (!safe_reload_superclass_matches(candidate, canonical))
+	{
+		*reason = "superclass";
+		return NO;
+	}
+	int *offsetStorage = NULL;
+	struct objc_ivar_list *ivars = copy_reload_ivars(candidate->ivars, &offsetStorage);
+	if ((candidate->ivars != NULL) && (ivars == NULL))
+	{
+		*reason = "ivar-metadata";
+		return NO;
+	}
+	struct objc_class normalized = *candidate;
+	normalized.super_class = canonical->super_class;
+	normalized.ivars = ivars;
+	objc_set_class_flag(&normalized, objc_class_flag_resolved);
+	objc_compute_ivar_offsets(&normalized);
+
+	BOOL match = normalized.instance_size == canonical->instance_size;
+	if (!match) { *reason = "instance-size"; }
+	if (match && ((normalized.ivars == NULL) != (canonical->ivars == NULL)))
+	{
+		match = NO;
+		*reason = "ivar-presence";
+	}
+	if (match && (normalized.ivars != NULL))
+	{
+		if (normalized.ivars->count != canonical->ivars->count)
+		{
+			match = NO;
+			*reason = "ivar-count";
+		}
+	}
+	for (int i = 0; match && (normalized.ivars != NULL) &&
+	     (i < normalized.ivars->count); i++)
+	{
+		struct objc_ivar *fresh = ivar_at_index(normalized.ivars, i);
+		struct objc_ivar *live = ivar_at_index(canonical->ivars, i);
+		if (!reload_string_equal(fresh->name, live->name) ||
+		    !reload_string_equal(fresh->type, live->type) ||
+		    (fresh->size != live->size) || (fresh->flags != live->flags) ||
+		    (fresh->offset == NULL) || (live->offset == NULL) ||
+		    (*fresh->offset != *live->offset))
+		{
+			match = NO;
+			*reason = "ivar-layout";
+		}
+	}
+	free(offsetStorage);
+	free(ivars);
+	return match;
+}
+
+struct safe_reload_method_entry
+{
+	Method target;
+	SEL selector;
+	IMP implementation;
+	const char *types;
+};
+
+struct safe_reload_method_plan
+{
+	Class target;
+	struct safe_reload_method_entry *entries;
+	size_t entry_count;
+	struct objc_method_list *additions;
+};
+
+static Method safe_reload_find_method(Class target, const char *name)
+{
+	for (struct objc_method_list *list = target->methods; list != NULL; list = list->next)
+	{
+		if ((list->count < 0) || (list->size < sizeof(struct objc_method))) { return NULL; }
+		for (int i = 0; i < list->count; i++)
+		{
+			Method method = method_at_index(list, i);
+			const char *methodName = sel_getName(method->selector);
+			if ((methodName != NULL) && (strcmp(methodName, name) == 0)) { return method; }
+		}
+	}
+	return NULL;
+}
+
+static BOOL safe_reload_plan_contains_name(const struct safe_reload_method_plan *plan,
+                                           const char *name)
+{
+	for (size_t i = 0; i < plan->entry_count; i++)
+	{
+		const char *entryName = sel_getName(plan->entries[i].selector);
+		if ((entryName != NULL) && (strcmp(entryName, name) == 0)) { return YES; }
+	}
+	return NO;
+}
+
+static void safe_reload_destroy_plan(struct safe_reload_method_plan *plan)
+{
+	if (plan->additions != NULL)
+	{
+		for (int i = 0; i < plan->additions->count; i++)
+		{
+			free((void*)method_at_index(plan->additions, i)->types);
+		}
+		free(plan->additions);
+	}
+	free(plan->entries);
+	memset(plan, 0, sizeof(*plan));
+}
+
+static BOOL safe_reload_count_methods(Class source, size_t *outCount)
+{
+	size_t count = 0;
+	for (struct objc_method_list *list = source->methods; list != NULL; list = list->next)
+	{
+		if ((list->count < 0) || (list->size < sizeof(struct objc_method))) { return NO; }
+		if ((size_t)list->count > SIZE_MAX - count) { return NO; }
+		count += (size_t)list->count;
+	}
+	*outCount = count;
+	return YES;
+}
+
+static BOOL safe_reload_prepare_plan(Class target, Class source,
+                                     struct safe_reload_method_plan *plan,
+                                     const char **reason)
+{
+	memset(plan, 0, sizeof(*plan));
+	plan->target = target;
+	size_t total = 0;
+	if (!safe_reload_count_methods(source, &total))
+	{
+		*reason = "method-metadata";
+		return NO;
+	}
+	if (total == 0) { return YES; }
+	size_t entryBytes = 0;
+	if (!objc2_size_multiply(total, sizeof(*plan->entries), &entryBytes))
+	{
+		*reason = "method-metadata";
+		return NO;
+	}
+	plan->entries = calloc(1, entryBytes);
+	if (plan->entries == NULL)
+	{
+		*reason = "allocation";
+		return NO;
+	}
+
+	size_t additions = 0;
+	for (struct objc_method_list *list = source->methods; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			Method incoming = method_at_index(list, i);
+			const char *name = sel_getName(incoming->selector);
+			if ((name == NULL) || (incoming->types == NULL) || (incoming->imp == NULL))
+			{
+				*reason = "method-metadata";
+				safe_reload_destroy_plan(plan);
+				return NO;
+			}
+			if (safe_reload_plan_contains_name(plan, name)) { continue; }
+			Method existing = safe_reload_find_method(target, name);
+			if ((existing != NULL) && !reload_string_equal(existing->types, incoming->types))
+			{
+				*reason = "method-signature";
+				safe_reload_destroy_plan(plan);
+				return NO;
+			}
+			struct safe_reload_method_entry *entry = &plan->entries[plan->entry_count++];
+			entry->target = existing;
+			entry->selector = incoming->selector;
+			entry->implementation = incoming->imp;
+			entry->types = incoming->types;
+			if (existing == NULL) { additions++; }
+		}
+	}
+
+	if (additions == 0) { return YES; }
+	if (additions > INT_MAX)
+	{
+		*reason = "method-metadata";
+		safe_reload_destroy_plan(plan);
+		return NO;
+	}
+	size_t additionBytes = 0;
+	if (!objc2_flexible_array_size(sizeof(struct objc_method_list), additions,
+	                               sizeof(struct objc_method), &additionBytes))
+	{
+		*reason = "method-metadata";
+		safe_reload_destroy_plan(plan);
+		return NO;
+	}
+	plan->additions = calloc(1, additionBytes);
+	if (plan->additions == NULL)
+	{
+		*reason = "allocation";
+		safe_reload_destroy_plan(plan);
+		return NO;
+	}
+	plan->additions->count = (int)additions;
+	plan->additions->size = sizeof(struct objc_method);
+
+	size_t additionIndex = 0;
+	for (size_t i = 0; i < plan->entry_count; i++)
+	{
+		struct safe_reload_method_entry *entry = &plan->entries[i];
+		if (entry->target != NULL) { continue; }
+		Method addition = method_at_index(plan->additions, (int)additionIndex++);
+		addition->selector = entry->selector;
+		addition->imp = entry->implementation;
+		addition->types = objc2_strdup(entry->types);
+		if (addition->types == NULL)
+		{
+			*reason = "allocation";
+			safe_reload_destroy_plan(plan);
+			return NO;
+		}
+	}
+	return YES;
+}
+
+static void safe_reload_emit_method_event(enum mosaic_objc_runtime_event_kind kind,
+                                          Class cls, Method method,
+                                          IMP oldImp, IMP newImp)
+{
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = kind;
+	event.cls = cls;
+	event.method = method;
+	event.selector = method->selector;
+	event.old_implementation = oldImp;
+	event.new_implementation = newImp;
+	event.name = sel_getName(method->selector);
+	mosaic_objc_emitRuntimeEvent(&event);
+}
+
+static void safe_reload_commit_plan(struct safe_reload_method_plan *plan)
+{
+	if (plan->additions != NULL)
+	{
+		plan->additions->next = plan->target->methods;
+		plan->target->methods = plan->additions;
+		if (classHasDtable(plan->target))
+		{
+			add_method_list_to_class(plan->target, plan->additions);
+		}
+		for (int i = 0; i < plan->additions->count; i++)
+		{
+			Method added = method_at_index(plan->additions, i);
+			safe_reload_emit_method_event(MOSAIC_OBJC_EVENT_METHOD_ADDED,
+			                              plan->target, added, NULL, added->imp);
+		}
+		plan->additions = NULL;
+	}
+	for (size_t i = 0; i < plan->entry_count; i++)
+	{
+		struct safe_reload_method_entry *entry = &plan->entries[i];
+		if (entry->target == NULL) { continue; }
+		IMP oldImp = entry->target->imp;
+		entry->target->imp = entry->implementation;
+		safe_reload_emit_method_event(MOSAIC_OBJC_EVENT_METHOD_REPLACED,
+		                              plan->target, entry->target,
+		                              oldImp, entry->implementation);
+	}
+	free(plan->entries);
+	plan->entries = NULL;
+	plan->entry_count = 0;
+}
+
+static void refresh_reload_cxx_cache(Class target)
+{
+	target->cxx_construct = NULL;
+	target->cxx_destruct = NULL;
+	for (struct objc_method_list *list = target->methods; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			Method method = method_at_index(list, i);
+			const char *name = sel_getName(method->selector);
+			if ((target->cxx_construct == NULL) && (strcmp(name, ".cxx_construct") == 0))
+			{
+				target->cxx_construct = method->imp;
+			}
+			else if ((target->cxx_destruct == NULL) && (strcmp(name, ".cxx_destruct") == 0))
+			{
+				target->cxx_destruct = method->imp;
+			}
+		}
+	}
+}
+
+static BOOL safe_reload_class(struct objc_class *candidate, struct objc_class *canonical)
+{
+	const char *reason = "layout-incompatible";
+	if ((candidate->isa == Nil) || (canonical->isa == Nil))
+	{
+		reason = "metaclass";
+		goto reject;
+	}
+	if (!safe_reload_layout_matches(candidate, canonical, &reason)) { goto reject; }
+	objc_register_selectors_from_class(candidate);
+	objc_register_selectors_from_class(candidate->isa);
+
+	struct safe_reload_method_plan instancePlan = {0};
+	struct safe_reload_method_plan classPlan = {0};
+	if (!safe_reload_prepare_plan(canonical, candidate, &instancePlan, &reason) ||
+	    !safe_reload_prepare_plan(canonical->isa, candidate->isa, &classPlan, &reason))
+	{
+		safe_reload_destroy_plan(&instancePlan);
+		safe_reload_destroy_plan(&classPlan);
+		goto reject;
+	}
+	safe_reload_commit_plan(&instancePlan);
+	safe_reload_commit_plan(&classPlan);
+	refresh_reload_cxx_cache(canonical);
+	refresh_reload_cxx_cache(canonical->isa);
+
+	{
+		struct mosaic_objc_runtime_event event = {0};
+		event.kind = MOSAIC_OBJC_EVENT_CLASS_RELOADED;
+		event.cls = canonical;
+		event.name = canonical->name;
+		event.detail = "layout-compatible";
+		mosaic_objc_emitRuntimeEvent(&event);
+	}
+	return YES;
+
+reject:
+	{
+		struct mosaic_objc_runtime_event event = {0};
+		event.kind = MOSAIC_OBJC_EVENT_CLASS_RELOAD_REJECTED;
+		event.cls = canonical;
+		event.name = canonical->name;
+		event.detail = reason;
+		mosaic_objc_emitRuntimeEvent(&event);
+	}
+	return NO;
+}
+
+static void permissive_reload_class(struct objc_class *class, struct objc_class *old)
 {
 	const char *superclassName = (char*)class->super_class;
 	class->super_class = class_table_get_safe(superclassName);
-	// Checking the instance sizes are equal here is a quick-and-dirty test.
-	// It's not actually needed, because we're testing the ivars are at the
-	// same locations next, but it lets us skip those tests if the total size
-	// is different.
 	BOOL equalLayouts = (class->super_class == old->super_class) &&
 		(class->instance_size == old->instance_size);
-	// If either of the classes has an empty ivar list, then the other one must too.
 	if ((NULL == class->ivars) || (NULL == old->ivars))
 	{
 		equalLayouts &= (class->ivars == old->ivars);
 	}
 	else
 	{
-		// If the class sizes are the same, ensure that the ivars have the same
-		// types, names, and offsets.  Note: Renaming an ivar is treated as a
-		// conflict because name changes are often accompanied by semantic
-		// changes.  For example, an object ivar at offset 16 goes from being
-		// called 'delegate' to being called 'view' - we almost certainly don't
-		// want methods that expect to be working with the delegate ivar to
-		// work with the view ivar now!
 		for (int i=0 ; equalLayouts && (i<old->ivars->count) ; i++)
 		{
 			struct objc_ivar *oldIvar = ivar_at_index(old->ivars, i);
@@ -560,6 +958,11 @@ PRIVATE void objc_load_class(struct objc_class *class)
 	struct objc_class *existingClass = class_table_get_safe(class->name);
 	if (Nil != existingClass)
 	{
+		if (objc_developer_mode_safe_reload == mode)
+		{
+			(void)safe_reload_class(class, existingClass);
+			return;
+		}
 		if (objc_developer_mode_developer != mode)
 		{
 			fprintf(stderr,
@@ -567,7 +970,7 @@ PRIVATE void objc_load_class(struct objc_class *class)
 				class->name);
 			return;
 		}
-		reload_class(class, existingClass);
+		permissive_reload_class(class, existingClass);
 		return;
 	}
 
