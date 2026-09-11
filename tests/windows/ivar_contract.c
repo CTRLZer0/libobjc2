@@ -64,6 +64,25 @@ int main(void)
 	CHECK(object != nil && value != nil);
 	object_setIvar(object, payload, value);
 	CHECK(object_getIvar(object, payload) == value);
+	CHECK(object_getIvar(nil, payload) == nil);
+	CHECK(object_getIvar(object, NULL) == nil);
+	object_setIvar(nil, payload, value);
+	object_setIvar(object, NULL, value);
+
+	id namedValue = value;
+	CHECK(object_setInstanceVariable(object, "payload", &namedValue) == payload);
+	CHECK(object_setInstanceVariable(object, "missing", &namedValue) == NULL);
+	CHECK(object_setInstanceVariable(nil, "payload", &namedValue) == NULL);
+	CHECK(object_setInstanceVariable(object, "payload", NULL) == NULL);
+
+	void *namedAddress = (void*)(uintptr_t)1;
+	CHECK(object_getInstanceVariable(object, "payload", &namedAddress) == payload);
+	CHECK(namedAddress != NULL && *(id*)namedAddress == value);
+	namedAddress = (void*)(uintptr_t)1;
+	CHECK(object_getInstanceVariable(object, "missing", &namedAddress) == NULL);
+	CHECK(namedAddress == NULL);
+	CHECK(object_getInstanceVariable(nil, "payload", &namedAddress) == NULL);
+	CHECK(namedAddress == NULL);
 
 	object_dispose(value);
 	object_dispose(object);

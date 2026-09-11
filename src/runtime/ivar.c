@@ -132,6 +132,7 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 
 void object_setIvar(id object, Ivar ivar, id value)
 {
+	if ((object == nil) || (ivar == NULL)) { return; }
 	id *addr = (id*)((char*)object + ivar_getOffset(ivar));
 	switch (ivarGetOwnership(ivar))
 	{
@@ -150,14 +151,18 @@ void object_setIvar(id object, Ivar ivar, id value)
 
 Ivar object_setInstanceVariable(id obj, const char *name, void *value)
 {
+	if ((obj == nil) || (name == NULL) || (value == NULL)) { return NULL; }
 	Ivar ivar = class_getInstanceVariable(object_getClass(obj), name);
-	if (ivar_getTypeEncoding(ivar)[0] == '@')
+	if (ivar == NULL) { return NULL; }
+	const char *type = ivar_getTypeEncoding(ivar);
+	if (type == NULL) { return NULL; }
+	if (type[0] == '@')
 	{
 		object_setIvar(obj, ivar, *(id*)value);
 	}
 	else
 	{
-		size_t size = objc_sizeof_type(ivar_getTypeEncoding(ivar));
+		size_t size = objc_sizeof_type(type);
 		memcpy((char*)obj + ivar_getOffset(ivar), value, size);
 	}
 	return ivar;
@@ -165,6 +170,7 @@ Ivar object_setInstanceVariable(id obj, const char *name, void *value)
 
 id object_getIvar(id object, Ivar ivar)
 {
+	if ((object == nil) || (ivar == NULL)) { return nil; }
 	id *addr = (id*)((char*)object + ivar_getOffset(ivar));
 	switch (ivarGetOwnership(ivar))
 	{
@@ -182,8 +188,11 @@ id object_getIvar(id object, Ivar ivar)
 
 Ivar object_getInstanceVariable(id obj, const char *name, void **outValue)
 {
+	if (outValue != NULL) { *outValue = NULL; }
+	if ((obj == nil) || (name == NULL)) { return NULL; }
 	Ivar ivar = class_getInstanceVariable(object_getClass(obj), name);
-	if (NULL != outValue)
+	if (ivar == NULL) { return NULL; }
+	if (outValue != NULL)
 	{
 		*outValue = (((char*)obj) + ivar_getOffset(ivar));
 	}
