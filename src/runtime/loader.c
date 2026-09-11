@@ -164,21 +164,56 @@ struct objc_init
 };
 // end: objc_init
 
-struct loaded_objc_image {
-    struct objc_init *init;
-    struct loaded_objc_image *next;
-};
-static struct loaded_objc_image *loaded_objc_images;
-
-static void register_loaded_objc_image(struct objc_init *init)
+struct mosaic_objc_image_record
 {
-    struct loaded_objc_image *image = calloc(1, sizeof(*image));
-    if (image == NULL) { abort(); }
-    image->init = init;
-    image->next = loaded_objc_images;
-    loaded_objc_images = image;
+	struct objc_init *init;
+	uint64_t generation;
+	char *identifier;
+	char *provider;
+	const void *base_address;
+	struct mosaic_objc_image_record *next;
+};
+static struct mosaic_objc_image_record *loaded_objc_images;
+static struct mosaic_objc_image_record *loaded_objc_images_tail;
+static uint64_t next_objc_image_generation = 1;
+
+static struct mosaic_objc_image_record *register_loaded_objc_image(struct objc_init *init)
+{
+	struct mosaic_objc_image_record *image = calloc(1, sizeof(*image));
+	if (image == NULL) { abort(); }
+	image->init = init;
+	image->generation = next_objc_image_generation++;
+	if (loaded_objc_images_tail == NULL)
+	{
+		loaded_objc_images = loaded_objc_images_tail = image;
+	}
+	else
+	{
+		loaded_objc_images_tail->next = image;
+		loaded_objc_images_tail = image;
+	}
+	return image;
 }
 
+static size_t objc_image_range_count(const void *begin, const void *end, size_t itemSize)
+{
+	if ((begin == NULL) || (end == NULL) || (itemSize == 0)) { return 0; }
+	uintptr_t first = (uintptr_t)begin;
+	uintptr_t last = (uintptr_t)end;
+	if (last < first) { return 0; }
+	size_t bytes = (size_t)(last - first);
+	return (bytes % itemSize) == 0 ? bytes / itemSize : 0;
+}
+
+static BOOL objc_image_is_registered(mosaic_objc_image_t image)
+{
+	for (struct mosaic_objc_image_record *candidate = loaded_objc_images;
+	     candidate != NULL; candidate = candidate->next)
+	{
+		if (candidate == image) { return YES; }
+	}
+	return NO;
+}
 
 static void remap_init_class_references(struct objc_init *init)
 {
@@ -194,10 +229,185 @@ static void remap_init_class_references(struct objc_init *init)
 
 static void remap_loaded_class_references(void)
 {
-    for (struct loaded_objc_image *image = loaded_objc_images;
+    for (struct mosaic_objc_image_record *image = loaded_objc_images;
          image != NULL; image = image->next) {
         remap_init_class_references(image->init);
     }
+}
+
+mosaic_objc_image_t *mosaic_objc_copyImageList(size_t *outCount)
+{
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	size_t count = 0;
+	for (struct mosaic_objc_image_record *image = loaded_objc_images;
+	     image != NULL; image = image->next)
+	{
+		if (count == SIZE_MAX) { return NULL; }
+		count++;
+	}
+	if (outCount != NULL) { *outCount = count; }
+	if (count == 0) { return NULL; }
+	if (count > (SIZE_MAX / sizeof(mosaic_objc_image_t)))
+	{
+		if (outCount != NULL) { *outCount = 0; }
+		return NULL;
+	}
+	mosaic_objc_image_t *images = malloc(count * sizeof(*images));
+	if (images == NULL)
+	{
+		if (outCount != NULL) { *outCount = 0; }
+		return NULL;
+	}
+	size_t index = 0;
+	for (struct mosaic_objc_image_record *image = loaded_objc_images;
+	     image != NULL; image = image->next)
+	{
+		images[index++] = image;
+	}
+	return images;
+}
+
+BOOL mosaic_objc_imageGetInfo(mosaic_objc_image_t image,
+                              struct mosaic_objc_image_info *outInfo)
+{
+	if ((image == NULL) || (outInfo == NULL)) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NO; }
+	struct objc_init *init = image->init;
+	*outInfo = (struct mosaic_objc_image_info){
+		.generation = image->generation,
+		.identifier = image->identifier,
+		.provider = image->provider,
+		.base_address = image->base_address,
+		.class_count = objc_image_range_count(init->cls_begin, init->cls_end, sizeof(Class)),
+		.class_reference_count = objc_image_range_count(init->cls_ref_begin, init->cls_ref_end, sizeof(Class)),
+		.category_count = objc_image_range_count(init->cat_begin, init->cat_end, sizeof(struct objc_category)),
+		.protocol_count = objc_image_range_count(init->proto_begin, init->proto_end, sizeof(struct objc_protocol)),
+	};
+	return YES;
+}
+
+BOOL mosaic_objc_imageSetIdentity(mosaic_objc_image_t image,
+                                  const char *identifier,
+                                  const char *provider,
+                                  const void *baseAddress)
+{
+	if (image == NULL) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NO; }
+	if ((identifier != NULL) && (image->identifier != NULL) &&
+	    (strcmp(identifier, image->identifier) != 0)) { return NO; }
+	if ((provider != NULL) && (image->provider != NULL) &&
+	    (strcmp(provider, image->provider) != 0)) { return NO; }
+	if ((baseAddress != NULL) && (image->base_address != NULL) &&
+	    (baseAddress != image->base_address)) { return NO; }
+
+	char *identifierCopy = NULL;
+	char *providerCopy = NULL;
+	if ((identifier != NULL) && (image->identifier == NULL))
+	{
+		identifierCopy = objc2_strdup(identifier);
+		if (identifierCopy == NULL) { return NO; }
+	}
+	if ((provider != NULL) && (image->provider == NULL))
+	{
+		providerCopy = objc2_strdup(provider);
+		if (providerCopy == NULL)
+		{
+			free(identifierCopy);
+			return NO;
+		}
+	}
+	if (identifierCopy != NULL) { image->identifier = identifierCopy; }
+	if (providerCopy != NULL) { image->provider = providerCopy; }
+	if ((baseAddress != NULL) && (image->base_address == NULL))
+	{
+		image->base_address = baseAddress;
+	}
+	return YES;
+}
+
+mosaic_objc_image_t mosaic_objc_imageForClass(Class cls)
+{
+	if (cls == Nil) { return NULL; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	for (struct mosaic_objc_image_record *image = loaded_objc_images;
+	     image != NULL; image = image->next)
+	{
+		struct objc_init *init = image->init;
+		size_t count = objc_image_range_count(init->cls_begin, init->cls_end, sizeof(Class));
+		for (size_t i = 0; i < count; i++)
+		{
+			if (init->cls_begin[i] == cls) { return image; }
+		}
+	}
+	return NULL;
+}
+
+mosaic_objc_image_t mosaic_objc_imageForProtocol(Protocol *protocol)
+{
+	if (protocol == NULL) { return NULL; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	for (struct mosaic_objc_image_record *image = loaded_objc_images;
+	     image != NULL; image = image->next)
+	{
+		struct objc_init *init = image->init;
+		size_t count = objc_image_range_count(init->proto_begin, init->proto_end, sizeof(struct objc_protocol));
+		for (size_t i = 0; i < count; i++)
+		{
+			if ((Protocol *)&init->proto_begin[i] == protocol) { return image; }
+		}
+	}
+	return NULL;
+}
+
+Class mosaic_objc_imageGetClass(mosaic_objc_image_t image, size_t index)
+{
+	if (image == NULL) { return Nil; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return Nil; }
+	struct objc_init *init = image->init;
+	size_t count = objc_image_range_count(init->cls_begin, init->cls_end, sizeof(Class));
+	return index < count ? init->cls_begin[index] : Nil;
+}
+
+Protocol *mosaic_objc_imageGetProtocol(mosaic_objc_image_t image, size_t index)
+{
+	if (image == NULL) { return NULL; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NULL; }
+	struct objc_init *init = image->init;
+	size_t count = objc_image_range_count(init->proto_begin, init->proto_end, sizeof(struct objc_protocol));
+	return index < count ? (Protocol *)&init->proto_begin[index] : NULL;
+}
+
+const char *mosaic_objc_imageGetCategoryName(mosaic_objc_image_t image, size_t index)
+{
+	if (image == NULL) { return NULL; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NULL; }
+	struct objc_init *init = image->init;
+	size_t count = objc_image_range_count(init->cat_begin, init->cat_end, sizeof(struct objc_category));
+	return index < count ? init->cat_begin[index].name : NULL;
+}
+
+const char *mosaic_objc_imageGetCategoryClassName(mosaic_objc_image_t image, size_t index)
+{
+	if (image == NULL) { return NULL; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NULL; }
+	struct objc_init *init = image->init;
+	size_t count = objc_image_range_count(init->cat_begin, init->cat_end, sizeof(struct objc_category));
+	return index < count ? init->cat_begin[index].class_name : NULL;
 }
 
 #ifdef DEBUG_LOADING
