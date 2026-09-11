@@ -320,6 +320,8 @@ enum objc_class_flags
 	objc_class_flag_owned_ivar_offsets = (1 << 17),
 	/** Class was created by objc_duplicateClass() and shares its metaclass. */
 	objc_class_flag_duplicate = (1 << 18),
+	/** Placeholder allocated by objc_getFutureClass() before image load. */
+	objc_class_flag_future = (1 << 19),
 };
 
 /**
@@ -412,6 +414,11 @@ void freeIvarLists(Class aClass);
 void freeMethodLists(Class aClass);
 
 void objc_load_class(struct objc_class *cls);
+
+/** Returns the canonical class for a possibly-remapped static class pointer. */
+Class objc_remap_class(Class cls);
+/** Claims a pending future-class placeholder for an incoming class definition. */
+Class objc_claim_future_class(Class cls);
 
 #ifdef __cplusplus
 } // extern "C"

@@ -9,6 +9,7 @@
 #include "dtable.h"
 #include "legacy.h"
 #include "visibility.h"
+#include "crt_compat.h"
 #include <stdlib.h>
 #include <assert.h>
 
@@ -87,6 +88,50 @@ static int class_hash(const Class class)
 #include "hash_table.h"
 
 static class_table_internal_table *class_table;
+
+/* Pending name -> stable placeholder mappings for objc_getFutureClass(). */
+#define MAP_TABLE_NAME future_class_internal
+#define MAP_TABLE_COMPARE_FUNCTION class_compare
+#define MAP_TABLE_HASH_KEY string_hash
+#define MAP_TABLE_HASH_VALUE class_hash
+#include "hash_table.h"
+static future_class_internal_table *future_class_table;
+
+struct objc_class_remap
+{
+	Class source;
+	Class target;
+};
+static int remap_compare(const void *key, const struct objc_class_remap value)
+{
+	return key == (const void*)value.source;
+}
+static int32_t remap_pointer_hash(const void *value)
+{
+	uintptr_t x = (uintptr_t)value;
+	x ^= x >> 17;
+	x *= (uintptr_t)0xed5ad4bbu;
+	x ^= x >> 11;
+	return (int32_t)x;
+}
+static int32_t remap_value_hash(const struct objc_class_remap value)
+{
+	return remap_pointer_hash(value.source);
+}
+static int remap_is_null(const struct objc_class_remap value)
+{
+	return value.source == Nil;
+}
+static struct objc_class_remap null_remap;
+#define MAP_TABLE_NAME remapped_class_internal
+#define MAP_TABLE_COMPARE_FUNCTION remap_compare
+#define MAP_TABLE_HASH_KEY remap_pointer_hash
+#define MAP_TABLE_HASH_VALUE remap_value_hash
+#define MAP_TABLE_VALUE_TYPE struct objc_class_remap
+#define MAP_TABLE_VALUE_NULL remap_is_null
+#define MAP_TABLE_VALUE_PLACEHOLDER null_remap
+#include "hash_table.h"
+static remapped_class_internal_table *remapped_class_table;
 
 static uint64_t class_table_generation = 1;
 // A small 2-way TLS cache avoids pointer-layout collision cliffs while keeping
@@ -212,12 +257,43 @@ PRIVATE BOOL objc_resolve_class(Class cls);
 PRIVATE void init_class_tables(void)
 {
 	class_table_internal_initialize(&class_table, 4096);
+	future_class_internal_initialize(&future_class_table, 32);
+	remapped_class_internal_initialize(&remapped_class_table, 32);
 	objc_init_load_messages_table();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Loader functions
 ////////////////////////////////////////////////////////////////////////////////
+
+PRIVATE Class objc_remap_class(Class cls)
+{
+	if (cls == Nil) { return Nil; }
+	struct objc_class_remap remap =
+		remapped_class_internal_table_get(remapped_class_table, cls);
+	return remap.source == Nil ? cls : remap.target;
+}
+
+PRIVATE Class objc_claim_future_class(Class cls)
+{
+	if ((cls == Nil) || (cls->name == NULL)) { return cls; }
+	Class alreadyRemapped = objc_remap_class(cls);
+	if (alreadyRemapped != cls) { return alreadyRemapped; }
+
+	Class future = future_class_internal_table_get(future_class_table, cls->name);
+	if (future == Nil) { return cls; }
+
+	struct objc_class_remap remap = { cls, future };
+	if (!remapped_class_internal_insert(remapped_class_table, remap))
+	{
+		abort();
+	}
+	future_class_internal_remove(future_class_table, (void*)cls->name);
+	char *reservedName = (char*)future->name;
+	memcpy(future, cls, sizeof(struct objc_class));
+	free(reservedName);
+	return future;
+}
 
 PRIVATE BOOL objc_resolve_class(Class cls)
 {
@@ -615,6 +691,35 @@ Class class_getSuperclass(Class cls)
 	return cls->super_class;
 }
 
+
+Class objc_getFutureClass(const char *name)
+{
+	if (name == NULL) { return Nil; }
+	LOCK_RUNTIME_FOR_SCOPE();
+	Class cls = class_table_get_safe(name);
+	if (cls != Nil) { return cls; }
+	cls = future_class_internal_table_get(future_class_table, name);
+	if (cls != Nil) { return cls; }
+
+	Class future = calloc(1, sizeof(struct objc_class));
+	if (future == Nil) { return Nil; }
+	char *nameCopy = objc2_strdup(name);
+	if (nameCopy == NULL)
+	{
+		free(future);
+		return Nil;
+	}
+	future->name = nameCopy;
+	future->dtable = uninstalled_dtable;
+	future->info = objc_class_flag_future;
+	if (!future_class_internal_insert(future_class_table, future))
+	{
+		free(nameCopy);
+		free(future);
+		return Nil;
+	}
+	return future;
+}
 
 id objc_getClass(const char *name)
 {

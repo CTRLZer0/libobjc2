@@ -164,6 +164,42 @@ struct objc_init
 };
 // end: objc_init
 
+struct loaded_objc_image {
+    struct objc_init *init;
+    struct loaded_objc_image *next;
+};
+static struct loaded_objc_image *loaded_objc_images;
+
+static void register_loaded_objc_image(struct objc_init *init)
+{
+    struct loaded_objc_image *image = calloc(1, sizeof(*image));
+    if (image == NULL) { abort(); }
+    image->init = init;
+    image->next = loaded_objc_images;
+    loaded_objc_images = image;
+}
+
+
+static void remap_init_class_references(struct objc_init *init)
+{
+    for (Class *slot = init->cls_begin; slot < init->cls_end; slot++) {
+        if (*slot == Nil) { continue; }
+        *slot = objc_remap_class(*slot);
+        (*slot)->super_class = objc_remap_class((*slot)->super_class);
+    }
+    for (Class *ref = init->cls_ref_begin; ref < init->cls_ref_end; ref++) {
+        if (*ref != Nil) { *ref = objc_remap_class(*ref); }
+    }
+}
+
+static void remap_loaded_class_references(void)
+{
+    for (struct loaded_objc_image *image = loaded_objc_images;
+         image != NULL; image = image->next) {
+        remap_init_class_references(image->init);
+    }
+}
+
 #ifdef DEBUG_LOADING
 #include <dlfcn.h>
 #endif
@@ -210,6 +246,7 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 	{
 		return;
 	}
+	register_loaded_objc_image(init);
 
 	assert(init->version == 0);
 	assert((((uintptr_t)init->sel_end-(uintptr_t)init->sel_begin) % sizeof(*init->sel_begin)) == 0);
@@ -244,30 +281,32 @@ OBJC_PUBLIC void __objc_load(struct objc_init *init)
 		*proto = p;
 	}
 	int classesLoaded = 0;
+	BOOL resolvedFutureClass = NO;
+	for (Class *slot = init->cls_begin; slot < init->cls_end; slot++) {
+		if (*slot == Nil) { continue; }
+		Class incoming = *slot;
+		Class canonical = objc_claim_future_class(incoming);
+		if (canonical != incoming) {
+			*slot = canonical;
+			resolvedFutureClass = YES;
+		}
+	}
+	if (resolvedFutureClass) { remap_loaded_class_references(); }
+	else { remap_init_class_references(init); }
+
 	for (Class *cls = init->cls_begin ; cls < init->cls_end ; cls++)
 	{
-		if (*cls == NULL)
-		{
-			continue;
-		}
+		if (*cls == NULL) { continue; }
 #ifdef DEBUG_LOADING
 		fprintf(stderr, "Loading class %s\n", (*cls)->name);
 #endif
 		objc_load_class(*cls);
+		classesLoaded++;
 	}
 	if (isFirstLoad && (classesLoaded == 0))
 	{
-		// As a special case, allow using legacy ABI code with a new runtime.
 		CurrentABI = UnknownABI;
 	}
-#if 0
-	// We currently don't do anything with these pointers.  They exist to
-	// provide a level of indirection that will permit us to completely change
-	// the `objc_class` struct without breaking the ABI (again)
-	for (Class *cls = init->cls_ref_begin ; cls < init->cls_ref_end ; cls++)
-	{
-	}
-#endif
 	for (struct objc_category *cat = init->cat_begin ; cat < init->cat_end ;
 	     cat++)
 	{

@@ -43,6 +43,15 @@ add_mosaic_runtime_test(
 	mosaic_objc_duplicate_class_contract
 	duplicate_class_contract.c)
 add_mosaic_runtime_test(
+	mosaic_objc_future_class_contract
+	future_class_contract.c)
+target_include_directories(mosaic_objc_future_class_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/runtime"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/dispatch"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/support")
+target_compile_definitions(mosaic_objc_future_class_contract PRIVATE
+	__OBJC_RUNTIME_INTERNAL__=1)
+add_mosaic_runtime_test(
 	mosaic_objc_ivar_contract
 	ivar_contract.c)
 add_mosaic_runtime_test(

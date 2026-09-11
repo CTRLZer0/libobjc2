@@ -259,6 +259,14 @@ OBJC_PUBLIC
 void objc_disposeClassPair(Class cls);
 
 /**
+ * Returns the class already registered with the specified name, or reserves a
+ * stable class object that will become that class when a matching image is
+ * loaded.  Repeated calls for an unresolved name return the same pointer.
+ */
+OBJC_PUBLIC
+Class objc_getFutureClass(const char *name);
+
+/**
  * Returns the class with the specified name, if one has been registered with
  * the runtime, or nil if one does not exist.  If no class of this name is
  * loaded, it calls the _objc_lookup_class() callback to allow an external
