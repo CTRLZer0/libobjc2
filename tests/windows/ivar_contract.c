@@ -14,6 +14,27 @@ int main(void)
 {
 	mosaic_objc_runtime_initialize();
 
+	struct objc_ivar alignmentProbe = {0};
+	alignmentProbe.flags = ivar_extended_type_encoding | ownership_weak;
+	ivarSetAlign(&alignmentProbe, 0);
+	CHECK(ivarGetAlign(&alignmentProbe) == 1);
+	CHECK(ivarGetOwnership(&alignmentProbe) == ownership_weak);
+	CHECK((alignmentProbe.flags & ivar_extended_type_encoding) != 0);
+
+	ivarSetAlign(&alignmentProbe, 3);
+	CHECK(ivarGetAlign(&alignmentProbe) == 2);
+	ivarSetAlign(&alignmentProbe, SIZE_MAX);
+	CHECK(ivarGetAlign(&alignmentProbe) ==
+	      (((size_t)1) << (sizeof(size_t) * CHAR_BIT - 1)));
+
+	alignmentProbe.flags =
+		(alignmentProbe.flags & ~ivar_align_mask) | (63u << ivar_align_shift);
+#if SIZE_MAX > UINT32_MAX
+	CHECK(ivarGetAlign(&alignmentProbe) == (((size_t)1) << 63));
+#else
+	CHECK(ivarGetAlign(&alignmentProbe) == 0);
+#endif
+
 	Class cls = objc_allocateClassPair(Nil, "MosaicIvarContract", 0);
 	CHECK(cls != Nil);
 	CHECK(class_addIvar(cls, "byte", 1, 0, "c"));

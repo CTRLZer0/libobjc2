@@ -95,6 +95,7 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 				next_ivar += ivar_size;
 				last_size = ivar->size;
 				size_t align = ivarGetAlign(ivar);
+				if (align == 0) { abort(); }
 				// If the alignment is insufficient, round it up.
 				if ((*ivar->offset + refcount_size) % align != 0)
 				{
@@ -104,7 +105,7 @@ PRIVATE void objc_compute_ivar_offsets(Class class)
 					next_ivar += padding;
 				}
 				last_computed_offset = *ivar->offset;
-				assert((*ivar->offset + sizeof(uintptr_t)) % ivarGetAlign(ivar) == 0);
+				assert((*ivar->offset + sizeof(uintptr_t)) % align == 0);
 				class->instance_size += ivar_size;
 			}
 #ifdef OLDABI_COMPAT

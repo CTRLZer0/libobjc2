@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 
 /**
  * Metadata structure for an instance variable.
@@ -87,25 +88,30 @@ typedef enum {
 
 static inline size_t ivarGetAlign(Ivar ivar)
 {
-	return 1<<((ivar->flags & ivar_align_mask) >> ivar_align_shift);
+	uint32_t exponent =
+		(ivar->flags & ivar_align_mask) >> ivar_align_shift;
+	if (exponent >= sizeof(size_t) * CHAR_BIT) { return 0; }
+	return ((size_t)1) << exponent;
 }
 
 static inline void ivarSetAlign(Ivar ivar, size_t align)
 {
+	uint32_t exponent = 0;
 	if (align != 0)
 	{
 		if (sizeof(size_t) == 4)
 		{
-			align = 4 * 8 - __builtin_clz(align) - 1;
+			exponent = 31u - (uint32_t)__builtin_clz((uint32_t)align);
 		}
 		else if (sizeof(size_t) == 8)
 		{
-			align = 8 * 8 - __builtin_clzll(align) - 1;
+			exponent = 63u - (uint32_t)__builtin_clzll((unsigned long long)align);
 		}
-		_Static_assert((sizeof(size_t) == 4) || (sizeof(size_t) == 8), "Unexpected type for size_t");
+		_Static_assert((sizeof(size_t) == 4) || (sizeof(size_t) == 8),
+			"Unexpected type for size_t");
 	}
-	align  <<= ivar_align_shift;
-	ivar->flags = (ivar->flags & ~ivar_align_mask) | align;
+	uint32_t encoded = exponent << ivar_align_shift;
+	ivar->flags = (ivar->flags & ~ivar_align_mask) | encoded;
 }
 
 static inline void ivarSetOwnership(Ivar ivar, objc_ivar_ownership o)
