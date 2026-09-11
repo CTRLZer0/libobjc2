@@ -709,6 +709,122 @@ PRIVATE void freeIvarLists(Class aClass)
 	free(ivarlist);
 }
 
+static struct objc_method_list *duplicateMethodLists(struct objc_method_list *source)
+{
+	struct objc_method_list *head = NULL;
+	struct objc_method_list **tail = &head;
+	for (; source != NULL; source = source->next)
+	{
+		if ((source->count < 0) || (source->size < sizeof(struct objc_method)))
+		{
+			goto fail;
+		}
+		size_t bytes;
+		if (!objc2_flexible_array_size(sizeof(struct objc_method_list),
+		                               (size_t)source->count, source->size, &bytes))
+		{
+			goto fail;
+		}
+		struct objc_method_list *copy = calloc(1, bytes);
+		if (copy == NULL) { goto fail; }
+		copy->count = source->count;
+		copy->size = source->size;
+		for (int i = 0; i < source->count; i++)
+		{
+			struct objc_method *src = method_at_index(source, i);
+			struct objc_method *dst = method_at_index(copy, i);
+			memcpy(dst, src, source->size);
+			dst->types = src->types ? objc2_strdup(src->types) : NULL;
+			if ((src->types != NULL) && (dst->types == NULL))
+			{
+				copy->count = i + 1;
+				copy->next = head;
+				head = copy;
+				goto fail;
+			}
+		}
+		*tail = copy;
+		tail = &copy->next;
+	}
+	return head;
+
+fail:
+	while (head != NULL)
+	{
+		struct objc_method_list *next = head->next;
+		for (int i = 0; i < head->count; i++)
+		{
+			free((void*)method_at_index(head, i)->types);
+		}
+		free(head);
+		head = next;
+	}
+	return NULL;
+}
+
+static struct objc_ivar_list *duplicateIvarList(Class original, BOOL *ownsOffsets)
+{
+	*ownsOffsets = NO;
+	struct objc_ivar_list *source = original->ivars;
+	if (source == NULL) { return NULL; }
+	if ((source->count < 0) || (source->size < sizeof(struct objc_ivar))) { return NULL; }
+
+	size_t bytes;
+	if (!objc2_flexible_array_size(sizeof(struct objc_ivar_list),
+	                               (size_t)source->count, source->size, &bytes))
+	{
+		return NULL;
+	}
+	struct objc_ivar_list *copy = calloc(1, bytes);
+	if (copy == NULL) { return NULL; }
+	copy->count = source->count;
+	copy->size = source->size;
+
+	int *offsets = NULL;
+	if (source->count > 0)
+	{
+		size_t offsetBytes;
+		if (!objc2_size_multiply((size_t)source->count, sizeof(int), &offsetBytes))
+		{
+			free(copy);
+			return NULL;
+		}
+		offsets = malloc(offsetBytes);
+		if (offsets == NULL) { free(copy); return NULL; }
+	}
+
+	int copied = 0;
+	for (; copied < source->count; copied++)
+	{
+		Ivar src = ivar_at_index(source, copied);
+		Ivar dst = ivar_at_index(copy, copied);
+		memcpy(dst, src, source->size);
+		dst->name = src->name ? objc2_strdup(src->name) : NULL;
+		dst->type = src->type ? objc2_strdup(src->type) : NULL;
+		if (((src->name != NULL) && (dst->name == NULL)) ||
+		    ((src->type != NULL) && (dst->type == NULL)) ||
+		    (src->offset == NULL))
+		{
+			goto fail;
+		}
+		offsets[copied] = *src->offset;
+		dst->offset = &offsets[copied];
+	}
+	*ownsOffsets = source->count > 0;
+	return copy;
+
+fail:
+	for (int i = 0; i <= copied && i < source->count; i++)
+	{
+		Ivar dst = ivar_at_index(copy, i);
+		free((void*)dst->name);
+		free((void*)dst->type);
+	}
+	free(offsets);
+	free(copy);
+	return NULL;
+}
+
 /*
  * Removes a class from the subclass list found on its super class.
  * Must be called with the objc runtime mutex locked.
@@ -740,12 +856,13 @@ static inline void safe_remove_from_subclass_list(Class cls)
 void objc_disposeClassPair(Class cls)
 {
 	if (0 == cls) { return; }
+	BOOL duplicated = objc_test_class_flag(cls, objc_class_flag_duplicate);
 	Class meta = ((id)cls)->isa;
 	// Remove from the runtime system so nothing tries updating the dtable
 	// while we are freeing the class.
 	{
 		LOCK_RUNTIME_FOR_SCOPE();
-		safe_remove_from_subclass_list(meta);
+		if (!duplicated) { safe_remove_from_subclass_list(meta); }
 		safe_remove_from_subclass_list(cls);
 		if (objc_lookUpClass(cls->name) == cls)
 		{
@@ -755,13 +872,13 @@ void objc_disposeClassPair(Class cls)
 
 	// Free the method and ivar lists.
 	freeMethodLists(cls);
-	freeMethodLists(meta);
+	if (!duplicated) { freeMethodLists(meta); }
 	freeIvarLists(cls);
 	if (cls->dtable != uninstalled_dtable)
 	{
 		free_dtable(cls->dtable);
 	}
-	if (meta->dtable != uninstalled_dtable)
+	if (!duplicated && meta->dtable != uninstalled_dtable)
 	{
 		free_dtable(meta->dtable);
 	}
@@ -769,8 +886,102 @@ void objc_disposeClassPair(Class cls)
 	// User-created class and metaclass share one runtime-owned name copy.
 	free((void*)cls->name);
 	// Free the class and metaclass
-	gc->free(meta);
+	if (!duplicated) { gc->free(meta); }
 	gc->free(cls);
+}
+
+Class objc_duplicateClass(Class original, const char *name, size_t extraBytes)
+{
+	if ((original == Nil) || (name == NULL) || class_isMetaClass(original) ||
+	    objc_test_class_flag(original, objc_class_flag_hidden_class))
+	{
+		return Nil;
+	}
+
+	size_t classSize;
+	if (!objc2_size_add(sizeof(struct objc_class), extraBytes, &classSize) ||
+	    (classSize > (size_t)PTRDIFF_MAX))
+	{
+		return Nil;
+	}
+
+	LOCK_RUNTIME_FOR_SCOPE();
+	if ((objc_lookUpClass(original->name) != original) ||
+	    (objc_lookUpClass(name) != Nil))
+	{
+		return Nil;
+	}
+	if (!objc_test_class_flag(original, objc_class_flag_resolved) &&
+	    !objc_resolve_class(original))
+	{
+		return Nil;
+	}
+
+	char *nameCopy = objc2_strdup(name);
+	if (nameCopy == NULL) { return Nil; }
+	struct objc_method_list *methods = duplicateMethodLists(original->methods);
+	if ((original->methods != NULL) && (methods == NULL))
+	{
+		free(nameCopy);
+		return Nil;
+	}
+	BOOL ownsOffsets = NO;
+	struct objc_ivar_list *ivars = duplicateIvarList(original, &ownsOffsets);
+	if ((original->ivars != NULL) && (ivars == NULL))
+	{
+		struct objc_class temporary = {0};
+		temporary.methods = methods;
+		freeMethodLists(&temporary);
+		free(nameCopy);
+		return Nil;
+	}
+
+	Class duplicate = gc->malloc(classSize);
+	if (duplicate == Nil)
+	{
+		struct objc_class temporary = {0};
+		temporary.methods = methods;
+		freeMethodLists(&temporary);
+		temporary.ivars = ivars;
+		if (ownsOffsets) { objc_set_class_flag(&temporary, objc_class_flag_owned_ivar_offsets); }
+		freeIvarLists(&temporary);
+		free(nameCopy);
+		return Nil;
+	}
+
+	duplicate->isa = original->isa;
+	duplicate->super_class = original->super_class;
+	duplicate->name = nameCopy;
+	duplicate->version = original->version;
+	duplicate->info = original->info;
+	duplicate->info &= ~(unsigned long)(objc_class_flag_meta |
+	                                   objc_class_flag_hidden_class |
+	                                   objc_class_flag_assoc_class |
+	                                   objc_class_flag_initialized |
+	                                   objc_class_flag_owned_ivar_offsets);
+	duplicate->info |= objc_class_flag_user_created | objc_class_flag_resolved |
+	                   objc_class_flag_duplicate;
+	if (ownsOffsets) { objc_set_class_flag(duplicate, objc_class_flag_owned_ivar_offsets); }
+	duplicate->instance_size = original->instance_size;
+	duplicate->ivars = ivars;
+	duplicate->methods = methods;
+	duplicate->dtable = uninstalled_dtable;
+	duplicate->subclass_list = Nil;
+	duplicate->cxx_construct = original->cxx_construct;
+	duplicate->cxx_destruct = original->cxx_destruct;
+	duplicate->sibling_class = Nil;
+	duplicate->protocols = original->protocols;
+	duplicate->extra_data = NULL;
+	duplicate->abi_version = original->abi_version;
+	duplicate->properties = original->properties;
+
+	if (duplicate->super_class != Nil)
+	{
+		duplicate->sibling_class = duplicate->super_class->subclass_list;
+		duplicate->super_class->subclass_list = duplicate;
+	}
+	class_table_insert(duplicate);
+	return duplicate;
 }
 
 Class objc_allocateClassPair(Class superclass, const char *name, size_t extraBytes)

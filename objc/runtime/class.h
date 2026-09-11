@@ -243,6 +243,14 @@ OBJC_PUBLIC
 Class objc_allocateClassPair(Class superclass, const char *name, size_t extraBytes);
 
 /**
+ * Creates and immediately registers a duplicate of an existing class.  The
+ * duplicate shares the original metaclass and superclass, but owns independent
+ * instance-method and ivar metadata.
+ */
+OBJC_PUBLIC
+Class objc_duplicateClass(Class original, const char *name, size_t extraBytes);
+
+/**
  * Frees a class and metaclass allocated with objc_allocateClassPair().  Any
  * attempts to send messages to instances of this class or its subclasses
  * result in undefined behaviour.

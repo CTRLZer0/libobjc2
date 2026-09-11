@@ -40,6 +40,9 @@ add_mosaic_runtime_test(
 	mosaic_objc_class_contract
 	class_contract.c)
 add_mosaic_runtime_test(
+	mosaic_objc_duplicate_class_contract
+	duplicate_class_contract.c)
+add_mosaic_runtime_test(
 	mosaic_objc_ivar_contract
 	ivar_contract.c)
 add_mosaic_runtime_test(

@@ -318,6 +318,8 @@ enum objc_class_flags
 	objc_class_flag_is_block = (1 << 16),
 	/** Runtime owns the contiguous ivar-offset storage for this dynamic class. */
 	objc_class_flag_owned_ivar_offsets = (1 << 17),
+	/** Class was created by objc_duplicateClass() and shares its metaclass. */
+	objc_class_flag_duplicate = (1 << 18),
 };
 
 /**
