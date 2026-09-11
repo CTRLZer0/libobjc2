@@ -371,6 +371,24 @@ id class_createInstance(Class cls, size_t extraBytes)
 	return obj;
 }
 
+id objc_constructInstance(Class cls, void *bytes)
+{
+	if ((cls == Nil) || (bytes == NULL)) { return nil; }
+	if (cls->instance_size < sizeof(Class)) { return nil; }
+
+	id obj = (id)bytes;
+	obj->isa = cls;
+	call_cxx_construct(obj);
+	return obj;
+}
+
+void *objc_destructInstance(id obj)
+{
+	if (obj == nil) { return NULL; }
+	call_cxx_destruct(obj);
+	return obj;
+}
+
 id object_copy(id obj, size_t size)
 {
 	if (obj == nil) { return nil; }
@@ -390,7 +408,7 @@ id object_copy(id obj, size_t size)
 
 id object_dispose(id obj)
 {
-	call_cxx_destruct(obj);
+	objc_destructInstance(obj);
 	gc->free_object(obj);
 	return nil;
 }

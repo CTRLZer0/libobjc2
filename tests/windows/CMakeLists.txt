@@ -46,6 +46,9 @@ add_mosaic_runtime_test(
 	mosaic_objc_encoding_contract
 	encoding_contract.c)
 add_mosaic_runtime_test(
+	mosaic_objc_construct_destruct_contract
+	construct_destruct_contract.c)
+add_mosaic_runtime_test(
 	mosaic_objc_tracing_contract
 	tracing_contract.c)
 add_test(

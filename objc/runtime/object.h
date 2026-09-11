@@ -51,6 +51,20 @@ void *object_getIndexedIvars(id obj);
 //id object_copy(id obj, size_t size);
 
 /**
+ * Constructs an instance of cls in caller-provided, suitably aligned,
+ * zero-filled storage of at least class_getInstanceSize(cls) bytes.
+ */
+OBJC_PUBLIC
+id objc_constructInstance(Class cls, void *bytes);
+
+/**
+ * Runs instance destruction without freeing the caller-provided storage.
+ * Associated references are removed as part of the normal destruction path.
+ */
+OBJC_PUBLIC
+void *objc_destructInstance(id obj);
+
+/**
  * Free an object created with class_createInstance().
  */
 OBJC_PUBLIC
