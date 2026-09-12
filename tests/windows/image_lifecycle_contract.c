@@ -12,6 +12,8 @@
 #include "objc/support/hooks.h"
 #include "objc/exceptions/runtime.h"
 #include "objc/memory/arc.h"
+#include "objc/blocks/private.h"
+#include "objc/blocks/runtime.h"
 #include "class.h"
 #include "observability.h"
 
@@ -107,6 +109,33 @@ static id lifecycle_cxx_destruct_new(id self, SEL _cmd)
     lifecycle_cxx_counter += 11;
     return self;
 }
+enum { LIFECYCLE_BLOCK_HAS_COPY_DISPOSE = 1 << 25 };
+static volatile uintptr_t lifecycle_block_counter;
+static mosaic_objc_image_t lifecycle_retiring_block_image;
+static BOOL lifecycle_retiring_block_seen;
+static void lifecycle_block_invoke(void *block, ...)
+{
+    (void)block;
+    lifecycle_block_counter += 17;
+}
+static void lifecycle_block_copy(void *dst, void *src)
+{
+    (void)dst;
+    (void)src;
+}
+static void lifecycle_block_dispose(void *src)
+{
+    (void)src;
+    struct mosaic_objc_image_unload_report report;
+    memset(&report, 0, sizeof(report));
+    if (mosaic_objc_imageGetUnloadReport(lifecycle_retiring_block_image, &report) &&
+        report.block_trampoline_reference_count >= 1 &&
+        (report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_BLOCK_TRAMPOLINE) != 0)
+    {
+        lifecycle_retiring_block_seen = YES;
+    }
+}
+extern void _NSConcreteStackBlock;
 
 static mosaic_objc_image_t load_empty_image(struct objc_init *init)
 {
@@ -415,6 +444,41 @@ int main(void)
     CHECK(report.runtime_cache_reference_count >= 1);
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE) != 0);
     CHECK(!mosaic_objc_imageIsUnloadCandidate(cxx_cache_image, NULL));
+
+    struct Block_descriptor block_descriptor = {
+        0, sizeof(struct Block_layout), lifecycle_block_copy,
+        lifecycle_block_dispose, NULL
+    };
+    struct Block_layout stack_block = {
+        &_NSConcreteStackBlock, LIFECYCLE_BLOCK_HAS_COPY_DISPOSE, 0,
+        lifecycle_block_invoke, &block_descriptor
+    };
+    IMP block_imp = imp_implementationWithBlock((id)&stack_block);
+    CHECK(block_imp != NULL);
+    CHECK(imp_getBlock(block_imp) != (id)&stack_block);
+
+    struct objc_init block_cache_init;
+    mosaic_objc_image_t block_cache_image = load_empty_image(&block_cache_init);
+    CHECK(block_cache_image != NULL);
+    memset(&block_cache_init, 0, sizeof(block_cache_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        block_cache_image, (const void *)(uintptr_t)(void *)lifecycle_block_invoke, 1));
+    CHECK(mosaic_objc_imageRetire(block_cache_image));
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(block_cache_image, &report));
+    CHECK(report.executable_reference_count == 0);
+    CHECK(report.block_trampoline_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_BLOCK_TRAMPOLINE) != 0);
+    CHECK(!mosaic_objc_imageIsUnloadCandidate(block_cache_image, NULL));
+    lifecycle_retiring_block_image = block_cache_image;
+    lifecycle_retiring_block_seen = NO;
+    CHECK(imp_removeBlock(block_imp));
+    CHECK(lifecycle_retiring_block_seen);
+    lifecycle_retiring_block_image = NULL;
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(block_cache_image, &report));
+    CHECK(report.block_trampoline_reference_count == 0);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_BLOCK_TRAMPOLINE) == 0);
 
     CHECK(!mosaic_objc_imageGetUnloadReport(NULL, &report));
     CHECK(!mosaic_objc_imageGetUnloadReport(image, NULL));

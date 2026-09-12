@@ -9,6 +9,7 @@
 #include "objc/mosaic.h"
 #include "objc/blocks_runtime.h"
 #include "objc/blocks_private.h"
+#include "objc/runtime/block.h"
 #include "blocks_runtime.h"
 
 #define CHECK(expr, code) do { \
@@ -190,6 +191,37 @@ static int test_byref_promotion(void)
     return 0;
 }
 
+static void trampoline_probe(void *block, ...)
+{
+    (void)block;
+}
+
+static int test_imp_trampoline_growth(void)
+{
+    enum { TRAMPOLINE_COUNT = 600 };
+    struct Block_descriptor descriptor = {
+        0, sizeof(struct Block_layout), NULL, NULL, NULL
+    };
+    struct Block_layout stack_block = {
+        &_NSConcreteStackBlock, 0, 0, trampoline_probe, &descriptor
+    };
+    IMP imps[TRAMPOLINE_COUNT];
+    for (int i = 0; i < TRAMPOLINE_COUNT; ++i)
+    {
+        imps[i] = imp_implementationWithBlock((id)&stack_block);
+        CHECK(imps[i] != NULL, 50);
+        CHECK(imp_getBlock(imps[i]) != (id)&stack_block, 51);
+    }
+    for (int i = 0; i < TRAMPOLINE_COUNT; ++i)
+    {
+        CHECK(imp_removeBlock(imps[i]), 52);
+    }
+    IMP reused = imp_implementationWithBlock((id)&stack_block);
+    CHECK(reused != NULL, 53);
+    CHECK(imp_removeBlock(reused), 54);
+    return 0;
+}
+
 static int test_legacy_weak_flags(void);
 
 int main(void)
@@ -202,6 +234,8 @@ int main(void)
     result = test_byref_promotion();
     if (result != 0) { return result; }
     result = test_legacy_weak_flags();
+    if (result != 0) { return result; }
+    result = test_imp_trampoline_growth();
     if (result != 0) { return result; }
 
     puts("blocks-contract: ok");

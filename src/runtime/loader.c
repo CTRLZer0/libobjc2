@@ -11,6 +11,9 @@
 #include "legacy.h"
 #include "observability.h"
 #include "arc_lifecycle.h"
+#if defined(EMBEDDED_BLOCKS_RUNTIME) && !defined(__wasm__)
+#include "block_lifecycle.h"
+#endif
 #include "allocation.h"
 #include "dtable.h"
 #ifdef ENABLE_GC
@@ -557,6 +560,10 @@ BOOL mosaic_objc_imageGetUnloadReport(
 		    objc2_countTracingHookReferences(base, image->mapped_size);
 		size_t arcCacheReferences =
 		    objc2_countArcCacheCodeReferences(base, image->mapped_size);
+#if defined(EMBEDDED_BLOCKS_RUNTIME) && !defined(__wasm__)
+		report.block_trampoline_reference_count =
+		    objc2_countBlockTrampolineReferences(base, image->mapped_size);
+#endif
 		if (arcCacheReferences > SIZE_MAX - report.runtime_cache_reference_count)
 		{
 			report.runtime_cache_reference_count = SIZE_MAX;
@@ -578,6 +585,10 @@ BOOL mosaic_objc_imageGetUnloadReport(
 	if (report.runtime_cache_reference_count != 0)
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE;
+	}
+	if (report.block_trampoline_reference_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_BLOCK_TRAMPOLINE;
 	}
 	uint64_t epochAfter = mosaic_objc_runtimeMutationEpoch();
 	report.mutation_epoch = epochAfter;

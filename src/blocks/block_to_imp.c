@@ -19,6 +19,8 @@
 #include "objc/runtime.h"
 #include "objc/blocks/runtime.h"
 #include "blocks_runtime.h"
+#include "block_lifecycle.h"
+#include "observability.h"
 #include "lock.h"
 #include "visibility.h"
 
@@ -268,11 +270,23 @@ static id invalid(id self, SEL _cmd)
 static struct trampoline_set *alloc_trampolines(char *start, char *end)
 {
 	struct trampoline_set *metadata = calloc(1, sizeof(struct trampoline_set));
+	if (metadata == NULL) { return NULL; }
 #if _WIN32
 	metadata->region = VirtualAlloc(NULL, trampoline_region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (metadata->region == NULL)
+	{
+		free(metadata);
+		return NULL;
+	}
 #else
 	metadata->region = mmap(NULL, trampoline_region_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	if (metadata->region == MAP_FAILED)
+	{
+		free(metadata);
+		return NULL;
+	}
 #endif
+	metadata->first_free = 0;
 	struct block_header *headers_start = REGION_HEADERS_START(metadata);
 	char *rx_buffer_start = REGION_RX_BUFFER_START(metadata);
 	for (int i=0 ; i<trampoline_header_per_page ; i++)
@@ -293,12 +307,111 @@ static struct trampoline_set *alloc_trampolines(char *start, char *end)
 static struct trampoline_set *sret_trampolines;
 static struct trampoline_set *trampolines;
 
+enum { BLOCK_LIFECYCLE_REFERENCE_CAPACITY = 7 };
+struct block_lifecycle_snapshot
+{
+	uintptr_t references[BLOCK_LIFECYCLE_REFERENCE_CAPACITY];
+	size_t count;
+	struct block_lifecycle_snapshot *next;
+};
+static struct block_lifecycle_snapshot *retiring_block_snapshots;
+
+static BOOL block_reference_in_range(uintptr_t address, uintptr_t base, size_t size)
+{
+	return (address >= base) && ((address - base) < size);
+}
+
+static BOOL block_header_is_free(struct trampoline_set *set, struct block_header *header)
+{
+	if (header->block == NULL) { return YES; }
+	uintptr_t address = (uintptr_t)header->block;
+	uintptr_t begin = (uintptr_t)REGION_HEADERS_START(set);
+	return (address >= begin) && ((address - begin) < (size_t)trampoline_page_size);
+}
+
+static void block_snapshot_add(struct block_lifecycle_snapshot *snapshot, uintptr_t address)
+{
+	if ((address == 0) || (snapshot->count >= BLOCK_LIFECYCLE_REFERENCE_CAPACITY)) { return; }
+	snapshot->references[snapshot->count++] = address;
+}
+
+static void block_snapshot_capture(struct block_lifecycle_snapshot *snapshot,
+                                   struct block_header *header)
+{
+	struct Block_layout *block = (struct Block_layout *)header->block;
+	block_snapshot_add(snapshot, (uintptr_t)(void *)header->fnptr);
+	block_snapshot_add(snapshot, (uintptr_t)block);
+	block_snapshot_add(snapshot, (uintptr_t)(void *)block->invoke);
+	block_snapshot_add(snapshot, (uintptr_t)block->descriptor);
+	if (block->descriptor == NULL) { return; }
+	if ((block->flags & BLOCK_HAS_COPY_DISPOSE) != 0)
+	{
+		block_snapshot_add(snapshot, (uintptr_t)(void *)block->descriptor->copy_helper);
+		block_snapshot_add(snapshot, (uintptr_t)(void *)block->descriptor->dispose_helper);
+		if ((block->flags & BLOCK_HAS_SIGNATURE) != 0)
+		{
+			block_snapshot_add(snapshot, (uintptr_t)block->descriptor->encoding);
+		}
+	}
+	else if ((block->flags & BLOCK_HAS_SIGNATURE) != 0)
+	{
+		struct Block_descriptor_basic *descriptor =
+		    (struct Block_descriptor_basic *)block->descriptor;
+		block_snapshot_add(snapshot, (uintptr_t)descriptor->encoding);
+	}
+}
+
+static void count_block_snapshot(const struct block_lifecycle_snapshot *snapshot,
+                                 uintptr_t base, size_t size, size_t *count)
+{
+	for (size_t i = 0; i < snapshot->count; i++)
+	{
+		if ((*count != SIZE_MAX) &&
+		    block_reference_in_range(snapshot->references[i], base, size))
+		{
+			(*count)++;
+		}
+	}
+}
+
+static void count_block_set_references(struct trampoline_set *set,
+                                       uintptr_t base, size_t size, size_t *count)
+{
+	for (; set != NULL; set = set->next)
+	{
+		struct block_header *headers = REGION_HEADERS_START(set);
+		for (size_t i = 0; i < trampoline_header_per_page; i++)
+		{
+			struct block_header *header = &headers[i];
+			if (block_header_is_free(set, header)) { continue; }
+			struct block_lifecycle_snapshot snapshot = {0};
+			block_snapshot_capture(&snapshot, header);
+			count_block_snapshot(&snapshot, base, size, count);
+		}
+	}
+}
+
+PRIVATE size_t objc2_countBlockTrampolineReferences(uintptr_t base, size_t size)
+{
+	if (size == 0) { return 0; }
+	size_t count = 0;
+	LOCK_FOR_SCOPE(&trampoline_lock);
+	count_block_set_references(trampolines, base, size, &count);
+	count_block_set_references(sret_trampolines, base, size, &count);
+	for (struct block_lifecycle_snapshot *snapshot = retiring_block_snapshots;
+	     snapshot != NULL; snapshot = snapshot->next)
+	{
+		count_block_snapshot(snapshot, base, size, &count);
+	}
+	return count;
+}
+
 IMP imp_implementationWithBlock(id block)
 {
+	if (block == nil) { return 0; }
 	struct Block_layout *b = (struct Block_layout *)block;
 	void *start;
 	void *end;
-	LOCK_FOR_SCOPE(&trampoline_lock);
 	struct trampoline_set **setptr;
 
 	if ((b->flags & BLOCK_USE_SRET) == BLOCK_USE_SRET)
@@ -313,40 +426,48 @@ IMP imp_implementationWithBlock(id block)
 		start = trampoline_start;
 		end = trampoline_end;
 	}
-	size_t trampolineSize = end - start;
-	// If we don't have a trampoline intrinsic for this architecture, return a
-	// null IMP.
-	if (0 >= trampolineSize) { return 0; }
+	if (0 >= (end - start)) { return 0; }
 	block = Block_copy(block);
-	// Allocate some trampolines if this is the first time that we need to do this.
-	if (*setptr == NULL)
+	if (block == nil) { return 0; }
+	b = (struct Block_layout *)block;
+	IMP result = 0;
 	{
-		*setptr = alloc_trampolines(start, end);
-	}
-	for (struct trampoline_set *set=*setptr ; set!=NULL ; set=set->next)
-	{
-		if (set->first_free != -1)
+		LOCK_FOR_SCOPE(&trampoline_lock);
+		struct trampoline_set *set = *setptr;
+		while ((set != NULL) && (set->first_free == -1)) { set = set->next; }
+		if (set == NULL)
+		{
+			set = alloc_trampolines(start, end);
+			if (set != NULL)
+			{
+				set->next = *setptr;
+				*setptr = set;
+			}
+		}
+		if (set != NULL)
 		{
 			int i = set->first_free;
 			struct block_header *headers_start = REGION_HEADERS_START(set);
 			char *rx_buffer_start = REGION_RX_BUFFER_START(set);
 			struct block_header *h = &headers_start[i];
 			struct block_header *next = h->block;
+			mosaic_objc_beginRuntimeMutation();
 			set->first_free = next ? (next - headers_start) : -1;
-			assert(set->first_free < trampoline_header_per_page);
 			assert(set->first_free >= -1);
+			assert((set->first_free == -1) ||
+			       ((size_t)set->first_free < trampoline_header_per_page));
 			h->fnptr = (void(*)(void))b->invoke;
 			h->block = b;
+			mosaic_objc_endRuntimeMutation();
 			uintptr_t addr = (uintptr_t)&rx_buffer_start[i*sizeof(struct block_header)];
 #if (__ARM_ARCH_ISA_THUMB == 2)
-			// If the trampoline is Thumb-2 code, then we must set the low bit
-			// to 1 so that b[l]x instructions put the CPU in the correct mode.
 			addr |= 1;
 #endif
-			return (IMP)addr;
+			result = (IMP)addr;
 		}
 	}
-	UNREACHABLE("Failed to allocate block");
+	if (result == 0) { Block_release(block); }
+	return result;
 }
 
 static int indexForIMP(IMP anIMP, struct trampoline_set **setptr)
@@ -385,24 +506,48 @@ id imp_getBlock(IMP anImp)
 
 BOOL imp_removeBlock(IMP anImp)
 {
-	LOCK_FOR_SCOPE(&trampoline_lock);
-	struct trampoline_set *set = trampolines;
-	int idx = indexForIMP(anImp, &set);
-	if (idx == -1)
+	struct block_lifecycle_snapshot *retiring = calloc(1, sizeof(*retiring));
+	if (retiring == NULL) { return NO; }
+	id block = nil;
 	{
-		set = sret_trampolines;
-		idx = indexForIMP(anImp, &set);
+		LOCK_FOR_SCOPE(&trampoline_lock);
+		struct trampoline_set *set = trampolines;
+		int idx = indexForIMP(anImp, &set);
+		if (idx == -1)
+		{
+			set = sret_trampolines;
+			idx = indexForIMP(anImp, &set);
+		}
+		if (idx == -1)
+		{
+			free(retiring);
+			return NO;
+		}
+		struct block_header *header_start = REGION_HEADERS_START(set);
+		struct block_header *h = &header_start[idx];
+		block = h->block;
+		block_snapshot_capture(retiring, h);
+		mosaic_objc_beginRuntimeMutation();
+		retiring->next = retiring_block_snapshots;
+		retiring_block_snapshots = retiring;
+		h->fnptr = (void(*)(void))invalid;
+		h->block = set->first_free == -1 ? NULL : &header_start[set->first_free];
+		set->first_free = h - header_start;
+		mosaic_objc_endRuntimeMutation();
 	}
-	if (idx == -1)
+	Block_release(block);
 	{
-		return NO;
+		LOCK_FOR_SCOPE(&trampoline_lock);
+		struct block_lifecycle_snapshot **cursor = &retiring_block_snapshots;
+		while ((*cursor != NULL) && (*cursor != retiring)) { cursor = &(*cursor)->next; }
+		if (*cursor == retiring)
+		{
+			mosaic_objc_beginRuntimeMutation();
+			*cursor = retiring->next;
+			mosaic_objc_endRuntimeMutation();
+		}
 	}
-	struct block_header *header_start = REGION_HEADERS_START(set);
-	struct block_header *h = &header_start[idx];
-	Block_release(h->block);
-	h->fnptr = (void(*)(void))invalid;
-	h->block = set->first_free == -1 ? NULL : &header_start[set->first_free];
-	set->first_free = h - header_start;
+	free(retiring);
 	return YES;
 }
 
