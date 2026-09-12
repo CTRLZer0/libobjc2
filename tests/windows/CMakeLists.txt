@@ -61,6 +61,15 @@ target_include_directories(mosaic_objc_image_registry_contract PRIVATE
 target_compile_definitions(mosaic_objc_image_registry_contract PRIVATE
 	__OBJC_RUNTIME_INTERNAL__=1)
 add_mosaic_runtime_test(
+	mosaic_objc_image_lifecycle_contract
+	image_lifecycle_contract.c)
+target_include_directories(mosaic_objc_image_lifecycle_contract PRIVATE
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/runtime"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/dispatch"
+	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/support")
+target_compile_definitions(mosaic_objc_image_lifecycle_contract PRIVATE
+	__OBJC_RUNTIME_INTERNAL__=1)
+add_mosaic_runtime_test(
 	mosaic_objc_observability_contract
 	observability_contract.c)
 target_include_directories(mosaic_objc_observability_contract PRIVATE

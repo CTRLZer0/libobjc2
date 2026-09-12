@@ -37,7 +37,8 @@ enum mosaic_objc_runtime_event_kind
     MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATION_CHANGED,
     MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATIONS_EXCHANGED,
     MOSAIC_OBJC_EVENT_CLASS_RELOADED,
-    MOSAIC_OBJC_EVENT_CLASS_RELOAD_REJECTED
+    MOSAIC_OBJC_EVENT_CLASS_RELOAD_REJECTED,
+    MOSAIC_OBJC_EVENT_IMAGE_RETIRED
 };
 
 struct mosaic_objc_runtime_event
@@ -68,6 +69,24 @@ typedef void (*mosaic_objc_runtime_event_sink_t)(
 OBJC_PUBLIC void mosaic_objc_runtimeSetEventSink(
     mosaic_objc_runtime_event_sink_t sink, void *context);
 
+enum mosaic_objc_image_state
+{
+    MOSAIC_OBJC_IMAGE_ACTIVE = 1,
+    MOSAIC_OBJC_IMAGE_RETIRED
+};
+
+enum mosaic_objc_image_unload_blocker
+{
+    MOSAIC_OBJC_IMAGE_BLOCKER_NOT_RETIRED = 1u << 0,
+    MOSAIC_OBJC_IMAGE_BLOCKER_ADDRESS_RANGE_UNKNOWN = 1u << 1,
+    MOSAIC_OBJC_IMAGE_BLOCKER_CLASS_METADATA = 1u << 2,
+    MOSAIC_OBJC_IMAGE_BLOCKER_PROTOCOL_METADATA = 1u << 3,
+    MOSAIC_OBJC_IMAGE_BLOCKER_CATEGORY_METADATA = 1u << 4,
+    MOSAIC_OBJC_IMAGE_BLOCKER_EXECUTABLE_CODE = 1u << 5,
+    MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE = 1u << 6,
+    MOSAIC_OBJC_IMAGE_BLOCKER_LOADER_METADATA = 1u << 7
+};
+
 /** Stable diagnostic metadata for a registered Objective-C image. */
 struct mosaic_objc_image_info
 {
@@ -81,6 +100,18 @@ struct mosaic_objc_image_info
     size_t protocol_count;
 };
 
+struct mosaic_objc_image_unload_report
+{
+    enum mosaic_objc_image_state state;
+    uint32_t blockers;
+    size_t mapped_size;
+    size_t class_metadata_count;
+    size_t protocol_metadata_count;
+    size_t category_metadata_count;
+    size_t loader_metadata_count;
+    size_t executable_reference_count;
+};
+
 /** Returns a malloc-owned image list in load order. */
 OBJC_PUBLIC mosaic_objc_image_t *mosaic_objc_copyImageList(size_t *outCount);
 /** Copies stable metadata for an image handle. */
@@ -91,6 +122,18 @@ OBJC_PUBLIC BOOL mosaic_objc_imageSetIdentity(mosaic_objc_image_t image,
                                                const char *identifier,
                                                const char *provider,
                                                const void *baseAddress);
+/** Sets the immutable mapped address range used by unload analysis. */
+OBJC_PUBLIC BOOL mosaic_objc_imageSetAddressRange(mosaic_objc_image_t image,
+                                                   const void *baseAddress,
+                                                   size_t mappedSize);
+/** Marks an image retired. Retirement is monotonic and does not unmap memory. */
+OBJC_PUBLIC BOOL mosaic_objc_imageRetire(mosaic_objc_image_t image);
+/** Produces a conservative snapshot of known unload blockers. */
+OBJC_PUBLIC BOOL mosaic_objc_imageGetUnloadReport(
+    mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport);
+/** True only when a retired image has no currently known runtime blockers. */
+OBJC_PUBLIC BOOL mosaic_objc_imageIsUnloadCandidate(
+    mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport);
 OBJC_PUBLIC mosaic_objc_image_t mosaic_objc_imageForClass(Class cls);
 OBJC_PUBLIC mosaic_objc_image_t mosaic_objc_imageForProtocol(Protocol *protocol);
 OBJC_PUBLIC Class mosaic_objc_imageGetClass(mosaic_objc_image_t image, size_t index);

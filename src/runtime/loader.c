@@ -10,6 +10,7 @@
 #include "crt_compat.h"
 #include "legacy.h"
 #include "observability.h"
+#include "allocation.h"
 #ifdef ENABLE_GC
 #include <gc/gc.h>
 #endif
@@ -167,11 +168,14 @@ struct objc_init
 
 struct mosaic_objc_image_record
 {
+	struct objc_init init_storage;
 	struct objc_init *init;
 	uint64_t generation;
 	char *identifier;
 	char *provider;
 	const void *base_address;
+	size_t mapped_size;
+	enum mosaic_objc_image_state state;
 	struct mosaic_objc_image_record *next;
 };
 static struct mosaic_objc_image_record *loaded_objc_images;
@@ -182,8 +186,10 @@ static struct mosaic_objc_image_record *register_loaded_objc_image(struct objc_i
 {
 	struct mosaic_objc_image_record *image = calloc(1, sizeof(*image));
 	if (image == NULL) { abort(); }
-	image->init = init;
+	image->init_storage = *init;
+	image->init = &image->init_storage;
 	image->generation = next_objc_image_generation++;
+	image->state = MOSAIC_OBJC_IMAGE_ACTIVE;
 	if (loaded_objc_images_tail == NULL)
 	{
 		loaded_objc_images = loaded_objc_images_tail = image;
@@ -206,6 +212,22 @@ static size_t objc_image_range_count(const void *begin, const void *end, size_t 
 	return (bytes % itemSize) == 0 ? bytes / itemSize : 0;
 }
 
+static BOOL objc_image_accumulate_range_count(const void *begin, const void *end,
+                                               size_t itemSize, size_t *total)
+{
+	if ((itemSize == 0) || (total == NULL)) { return NO; }
+	if ((begin == NULL) || (end == NULL)) { return begin == end; }
+	uintptr_t first = (uintptr_t)begin;
+	uintptr_t last = (uintptr_t)end;
+	if (last < first) { return NO; }
+	size_t bytes = (size_t)(last - first);
+	if ((bytes % itemSize) != 0) { return NO; }
+	size_t count = bytes / itemSize;
+	if (*total > SIZE_MAX - count) { return NO; }
+	*total += count;
+	return YES;
+}
+
 static BOOL objc_image_is_registered(mosaic_objc_image_t image)
 {
 	for (struct mosaic_objc_image_record *candidate = loaded_objc_images;
@@ -214,6 +236,16 @@ static BOOL objc_image_is_registered(mosaic_objc_image_t image)
 		if (candidate == image) { return YES; }
 	}
 	return NO;
+}
+
+static BOOL objc_image_contains_address(mosaic_objc_image_t image, uintptr_t address)
+{
+	if ((image == NULL) || (image->base_address == NULL) || (image->mapped_size == 0))
+	{
+		return NO;
+	}
+	uintptr_t base = (uintptr_t)image->base_address;
+	return (address >= base) && ((address - base) < image->mapped_size);
 }
 
 static void remap_init_class_references(struct objc_init *init)
@@ -329,6 +361,185 @@ BOOL mosaic_objc_imageSetIdentity(mosaic_objc_image_t image,
 		image->base_address = baseAddress;
 	}
 	return YES;
+}
+
+static void objc_image_scan_method_code(
+    mosaic_objc_image_t image, Class cls,
+    struct mosaic_objc_image_unload_report *report)
+{
+	if (cls == Nil) { return; }
+	unsigned int methodCount = 0;
+	Method *methods = class_copyMethodList(cls, &methodCount);
+	if ((methods == NULL) && (cls->methods != NULL))
+	{
+		report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+		return;
+	}
+	for (unsigned int i = 0; i < methodCount; i++)
+	{
+		IMP imp = method_getImplementation(methods[i]);
+		if ((imp != NULL) &&
+		    objc_image_contains_address(image, (uintptr_t)(void*)imp))
+		{
+			if (report->executable_reference_count == SIZE_MAX)
+			{
+				report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+			}
+			else
+			{
+				report->executable_reference_count++;
+			}
+		}
+	}
+	free(methods);
+}
+
+BOOL mosaic_objc_imageSetAddressRange(mosaic_objc_image_t image,
+                                         const void *baseAddress,
+                                         size_t mappedSize)
+{
+	if ((image == NULL) || (baseAddress == NULL) || (mappedSize == 0)) { return NO; }
+	uintptr_t base = (uintptr_t)baseAddress;
+	if (mappedSize > (UINTPTR_MAX - base)) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NO; }
+	if ((image->base_address != NULL) && (image->base_address != baseAddress)) { return NO; }
+	if ((image->mapped_size != 0) && (image->mapped_size != mappedSize)) { return NO; }
+	image->base_address = baseAddress;
+	image->mapped_size = mappedSize;
+	return YES;
+}
+
+BOOL mosaic_objc_imageRetire(mosaic_objc_image_t image)
+{
+	if (image == NULL) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NO; }
+	if (image->state == MOSAIC_OBJC_IMAGE_RETIRED) { return YES; }
+	image->state = MOSAIC_OBJC_IMAGE_RETIRED;
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_IMAGE_RETIRED;
+	event.image = image;
+	event.detail = "retired";
+	mosaic_objc_emitRuntimeEvent(&event);
+	return YES;
+}
+
+BOOL mosaic_objc_imageGetUnloadReport(
+    mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport)
+{
+	if ((image == NULL) || (outReport == NULL)) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image)) { return NO; }
+	struct mosaic_objc_image_unload_report report = {0};
+	report.state = image->state;
+	report.mapped_size = image->mapped_size;
+	if (image->state != MOSAIC_OBJC_IMAGE_RETIRED)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_NOT_RETIRED;
+	}
+	if ((image->base_address == NULL) || (image->mapped_size == 0))
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ADDRESS_RANGE_UNKNOWN;
+	}
+	struct objc_init *init = image->init;
+	BOOL metadataComplete = YES;
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->cls_begin, init->cls_end, sizeof(Class), &report.class_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->proto_begin, init->proto_end, sizeof(struct objc_protocol),
+	    &report.protocol_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->cat_begin, init->cat_end, sizeof(struct objc_category),
+	    &report.category_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->sel_begin, init->sel_end, sizeof(*init->sel_begin),
+	    &report.loader_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->cls_ref_begin, init->cls_ref_end, sizeof(*init->cls_ref_begin),
+	    &report.loader_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->proto_ref_begin, init->proto_ref_end, sizeof(*init->proto_ref_begin),
+	    &report.loader_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->alias_begin, init->alias_end, sizeof(*init->alias_begin),
+	    &report.loader_metadata_count);
+	metadataComplete &= objc_image_accumulate_range_count(
+	    init->strings_begin, init->strings_end, sizeof(*init->strings_begin),
+	    &report.loader_metadata_count);
+	if (!metadataComplete)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+	}
+	if (report.class_metadata_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_CLASS_METADATA;
+	}
+	if (report.protocol_metadata_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_PROTOCOL_METADATA;
+	}
+	if (report.category_metadata_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_CATEGORY_METADATA;
+	}
+	if (report.loader_metadata_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_LOADER_METADATA;
+	}
+	if ((image->base_address != NULL) && (image->mapped_size != 0))
+	{
+		int classCount = objc_getClassList(NULL, 0);
+		if (classCount < 0)
+		{
+			report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+		}
+		else if (classCount > 0)
+		{
+			size_t classBytes = 0;
+			if (!objc2_size_multiply((size_t)classCount, sizeof(Class), &classBytes))
+			{
+				report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+			}
+			else
+			{
+				Class *classes = malloc(classBytes);
+				if (classes == NULL)
+				{
+					report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+				}
+				else
+				{
+					int copied = objc_getClassList(classes, classCount);
+					for (int i = 0; i < copied; i++)
+					{
+						objc_image_scan_method_code(image, classes[i], &report);
+						objc_image_scan_method_code(image, classes[i]->isa, &report);
+					}
+					free(classes);
+				}
+			}
+		}
+	}
+	if (report.executable_reference_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_EXECUTABLE_CODE;
+	}
+	*outReport = report;
+	return YES;
+}
+
+BOOL mosaic_objc_imageIsUnloadCandidate(
+    mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport)
+{
+	struct mosaic_objc_image_unload_report localReport;
+	struct mosaic_objc_image_unload_report *report =
+	    outReport != NULL ? outReport : &localReport;
+	if (!mosaic_objc_imageGetUnloadReport(image, report)) { return NO; }
+	return report->blockers == 0;
 }
 
 mosaic_objc_image_t mosaic_objc_imageForClass(Class cls)
