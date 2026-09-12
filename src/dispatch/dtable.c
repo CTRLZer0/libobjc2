@@ -48,6 +48,8 @@ static inline void sparse_array_insert_or_abort(SparseArray *array, uint32_t ind
 {
 	if (!SparseArrayInsert(array, index, value)) { abort(); }
 }
+typedef void (*initialize_imp_t)(id, SEL);
+
 PRIVATE dtable_t uninstalled_dtable;
 #ifdef OBJC2_TRACING_SUPPORTED
 PRIVATE dtable_t tracing_dtable;
@@ -950,6 +952,6 @@ OBJC_PUBLIC void objc_send_initialize(id object)
 	// Store the buffer in the temporary dtables list.  Note that it is safe to
 	// insert it into a global list, even though it's a temporary variable,
 	// because we will clean it up after this function.
-	initializeSlot->imp((id)class, initializeSel);
+	((initialize_imp_t)initializeSlot->imp)((id)class, initializeSel);
 }
 
