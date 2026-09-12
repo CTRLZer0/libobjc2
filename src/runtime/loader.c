@@ -10,6 +10,7 @@
 #include "crt_compat.h"
 #include "legacy.h"
 #include "observability.h"
+#include "arc_lifecycle.h"
 #include "allocation.h"
 #include "dtable.h"
 #ifdef ENABLE_GC
@@ -538,6 +539,8 @@ BOOL mosaic_objc_imageGetUnloadReport(
 		    mosaic_objc_countGlobalHookReferences(base, image->mapped_size);
 		report.tracing_hook_reference_count =
 		    objc2_countTracingHookReferences(base, image->mapped_size);
+		report.runtime_cache_reference_count =
+		    objc2_countArcCacheCodeReferences(base, image->mapped_size);
 	}
 	if (report.global_hook_reference_count != 0)
 	{
@@ -546,6 +549,10 @@ BOOL mosaic_objc_imageGetUnloadReport(
 	if (report.tracing_hook_reference_count != 0)
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_TRACING_HOOK_CODE;
+	}
+	if (report.runtime_cache_reference_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE;
 	}
 	uint64_t epochAfter = mosaic_objc_runtimeMutationEpoch();
 	report.mutation_epoch = epochAfter;

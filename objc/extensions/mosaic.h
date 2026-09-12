@@ -91,7 +91,8 @@ enum mosaic_objc_image_unload_blocker
     MOSAIC_OBJC_IMAGE_BLOCKER_TRACING_HOOK_CODE = 1u << 9,
     MOSAIC_OBJC_IMAGE_BLOCKER_NOT_DETACHED = 1u << 10,
     MOSAIC_OBJC_IMAGE_BLOCKER_HOST_NOT_QUIESCENT = 1u << 11,
-    MOSAIC_OBJC_IMAGE_BLOCKER_STALE_EPOCH = 1u << 12
+    MOSAIC_OBJC_IMAGE_BLOCKER_STALE_EPOCH = 1u << 12,
+    MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE = 1u << 13
 };
 
 /** Stable diagnostic metadata for a registered Objective-C image. */
@@ -121,6 +122,7 @@ struct mosaic_objc_image_unload_report
     size_t executable_reference_count;
     size_t global_hook_reference_count;
     size_t tracing_hook_reference_count;
+    size_t runtime_cache_reference_count;
 };
 
 /** Returns a malloc-owned image list in load order. */

@@ -25,6 +25,8 @@
 #import "class.h"
 #import "selector.h"
 #import "visibility.h"
+#import "arc_lifecycle.h"
+#import "observability.h"
 #import "objc/support/hooks.h"
 #import "objc/memory/arc.h"
 #include "objc/dispatch/message.h"
@@ -253,11 +255,27 @@ static TLS_CALLBACK(cleanupPools)(struct arc_tls* tls)
 
 
 static Class AutoreleasePool;
-static IMP NewAutoreleasePool;
-static IMP DeleteAutoreleasePool;
-static IMP AutoreleaseAdd;
+static std::atomic<IMP> NewAutoreleasePool{nullptr};
+static std::atomic<IMP> DeleteAutoreleasePool{nullptr};
+static std::atomic<IMP> AutoreleaseAdd{nullptr};
 
 static BOOL useARCAutoreleasePool;
+
+extern "C" PRIVATE size_t objc2_countArcCacheCodeReferences(uintptr_t base, size_t size)
+{
+	const IMP cached[] = {
+		NewAutoreleasePool.load(std::memory_order_acquire),
+		DeleteAutoreleasePool.load(std::memory_order_acquire),
+		AutoreleaseAdd.load(std::memory_order_acquire)
+	};
+	size_t count = 0;
+	for (IMP imp : cached)
+	{
+		uintptr_t address = reinterpret_cast<uintptr_t>(imp);
+		if ((address >= base) && ((address - base) < size)) { count++; }
+	}
+	return count;
+}
 
 namespace {
 /**
@@ -576,12 +594,17 @@ static inline void initAutorelease(void)
 			if (!useARCAutoreleasePool)
 			{
 				[AutoreleasePool class];
-				NewAutoreleasePool = class_getMethodImplementation(object_getClass(AutoreleasePool),
-				                                                   SELECTOR(new));
-				DeleteAutoreleasePool = class_getMethodImplementation(AutoreleasePool,
-				                                                      SELECTOR(release));
-				AutoreleaseAdd = class_getMethodImplementation(object_getClass(AutoreleasePool),
-				                                               SELECTOR(addObject:));
+				IMP newAutoreleasePool = class_getMethodImplementation(
+				    object_getClass(AutoreleasePool), SELECTOR(new));
+				IMP deleteAutoreleasePool = class_getMethodImplementation(
+				    AutoreleasePool, SELECTOR(release));
+				IMP autoreleaseAdd = class_getMethodImplementation(
+				    object_getClass(AutoreleasePool), SELECTOR(addObject:));
+				mosaic_objc_beginRuntimeMutation();
+				NewAutoreleasePool.store(newAutoreleasePool, std::memory_order_release);
+				DeleteAutoreleasePool.store(deleteAutoreleasePool, std::memory_order_release);
+				AutoreleaseAdd.store(autoreleaseAdd, std::memory_order_release);
+				mosaic_objc_endRuntimeMutation();
 			}
 		}
 	}
@@ -611,9 +634,10 @@ static inline id autorelease(id obj)
 	if (objc_test_class_flag(classForObject(obj), objc_class_flag_fast_arc))
 	{
 		initAutorelease();
-		if (0 != AutoreleaseAdd)
+		IMP autoreleaseAdd = AutoreleaseAdd.load(std::memory_order_acquire);
+		if (0 != autoreleaseAdd)
 		{
-			AutoreleaseAdd(AutoreleasePool, SELECTOR(addObject:), obj);
+			autoreleaseAdd(AutoreleasePool, SELECTOR(addObject:), obj);
 		}
 		return obj;
 	}
@@ -685,8 +709,9 @@ extern "C" OBJC_PUBLIC void *objc_autoreleasePoolPush(void)
 		}
 	}
 	initAutorelease();
-	if (0 == NewAutoreleasePool) { return NULL; }
-	return NewAutoreleasePool(AutoreleasePool, SELECTOR(new));
+	IMP newAutoreleasePool = NewAutoreleasePool.load(std::memory_order_acquire);
+	if (0 == newAutoreleasePool) { return NULL; }
+	return newAutoreleasePool(AutoreleasePool, SELECTOR(new));
 }
 extern "C" OBJC_PUBLIC void objc_autoreleasePoolPop(void *pool)
 {
@@ -702,7 +727,8 @@ extern "C" OBJC_PUBLIC void objc_autoreleasePoolPop(void *pool)
 			return;
 		}
 	}
-	DeleteAutoreleasePool(static_cast<id>(pool), SELECTOR(release));
+	IMP deleteAutoreleasePool = DeleteAutoreleasePool.load(std::memory_order_acquire);
+	deleteAutoreleasePool(static_cast<id>(pool), SELECTOR(release));
 	struct arc_tls* tls = getARCThreadData();
 	if (tls && tls->returnRetained)
 	{

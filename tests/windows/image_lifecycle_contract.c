@@ -11,6 +11,7 @@
 #include "objc/mosaic.h"
 #include "objc/support/hooks.h"
 #include "objc/exceptions/runtime.h"
+#include "objc/memory/arc.h"
 #include "class.h"
 #include "observability.h"
 
@@ -63,6 +64,35 @@ static Class lifecycle_lookup_hook(const char *name)
 static void lifecycle_uncaught_hook(id exception)
 {
     (void)exception;
+}
+
+static volatile uintptr_t lifecycle_pool_counter;
+static id lifecycle_pool_class(id self, SEL _cmd)
+{
+    (void)_cmd;
+    return self;
+}
+static id lifecycle_pool_new(id self, SEL _cmd)
+{
+    (void)_cmd;
+    lifecycle_pool_counter += 1;
+    return self;
+}
+static id lifecycle_pool_new_replacement(id self, SEL _cmd)
+{
+    (void)_cmd;
+    lifecycle_pool_counter += 7;
+    return self;
+}
+static void lifecycle_pool_release(id self, SEL _cmd)
+{
+    (void)self; (void)_cmd;
+    lifecycle_pool_counter += 2;
+}
+static void lifecycle_pool_add(id self, SEL _cmd, id object)
+{
+    (void)self; (void)_cmd; (void)object;
+    lifecycle_pool_counter += 3;
 }
 
 static mosaic_objc_image_t load_empty_image(struct objc_init *init)
@@ -308,6 +338,43 @@ int main(void)
     CHECK(report.global_hook_reference_count == 0);
     CHECK(report.blockers == 0);
     CHECK(mosaic_objc_imageDetach(exception_image, report.mutation_epoch));
+
+    CHECK(objc_getClass("NSAutoreleasePool") == Nil);
+    Class pool_class = objc_allocateClassPair(Nil, "NSAutoreleasePool", 0);
+    CHECK(pool_class != Nil);
+    SEL class_selector = sel_registerName("class");
+    SEL new_selector = sel_registerName("new");
+    SEL release_selector = sel_registerName("release");
+    SEL add_selector = sel_registerName("addObject:");
+    CHECK(class_addMethod(object_getClass((id)pool_class), class_selector,
+                          (IMP)(void *)lifecycle_pool_class, "@@:"));
+    CHECK(class_addMethod(object_getClass((id)pool_class), new_selector,
+                          (IMP)(void *)lifecycle_pool_new, "@@:"));
+    CHECK(class_addMethod(pool_class, release_selector,
+                          (IMP)(void *)lifecycle_pool_release, "v@:"));
+    CHECK(class_addMethod(object_getClass((id)pool_class), add_selector,
+                          (IMP)(void *)lifecycle_pool_add, "v@:@"));
+    objc_registerClassPair(pool_class);
+
+    struct objc_init arc_cache_init;
+    mosaic_objc_image_t arc_cache_image = load_empty_image(&arc_cache_init);
+    CHECK(arc_cache_image != NULL);
+    memset(&arc_cache_init, 0, sizeof(arc_cache_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        arc_cache_image, (const void *)(uintptr_t)(void *)lifecycle_pool_new, 1));
+    CHECK(mosaic_objc_imageRetire(arc_cache_image));
+    void *pool_token = objc_autoreleasePoolPush();
+    CHECK(pool_token == (void *)pool_class);
+    objc_autoreleasePoolPop(pool_token);
+    CHECK(class_replaceMethod(object_getClass((id)pool_class), new_selector,
+                              (IMP)(void *)lifecycle_pool_new_replacement,
+                              "@@:") == (IMP)(void *)lifecycle_pool_new);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(arc_cache_image, &report));
+    CHECK(report.executable_reference_count == 0);
+    CHECK(report.runtime_cache_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE) != 0);
+    CHECK(!mosaic_objc_imageIsUnloadCandidate(arc_cache_image, NULL));
 
     CHECK(!mosaic_objc_imageGetUnloadReport(NULL, &report));
     CHECK(!mosaic_objc_imageGetUnloadReport(image, NULL));
