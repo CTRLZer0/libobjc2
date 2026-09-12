@@ -417,7 +417,8 @@ BOOL mosaic_objc_imageRetire(mosaic_objc_image_t image)
 	init_runtime();
 	LOCK_RUNTIME_FOR_SCOPE();
 	if (!objc_image_is_registered(image)) { return NO; }
-	if (image->state == MOSAIC_OBJC_IMAGE_RETIRED) { return YES; }
+	if ((image->state == MOSAIC_OBJC_IMAGE_RETIRED) ||
+	    (image->state == MOSAIC_OBJC_IMAGE_DETACHED)) { return YES; }
 	image->state = MOSAIC_OBJC_IMAGE_RETIRED;
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_IMAGE_RETIRED;
@@ -434,10 +435,11 @@ BOOL mosaic_objc_imageGetUnloadReport(
 	init_runtime();
 	LOCK_RUNTIME_FOR_SCOPE();
 	if (!objc_image_is_registered(image)) { return NO; }
+	uint64_t epochBefore = mosaic_objc_runtimeMutationEpoch();
 	struct mosaic_objc_image_unload_report report = {0};
 	report.state = image->state;
 	report.mapped_size = image->mapped_size;
-	if (image->state != MOSAIC_OBJC_IMAGE_RETIRED)
+	if (image->state == MOSAIC_OBJC_IMAGE_ACTIVE)
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_NOT_RETIRED;
 	}
@@ -528,7 +530,42 @@ BOOL mosaic_objc_imageGetUnloadReport(
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_EXECUTABLE_CODE;
 	}
+	uint64_t epochAfter = mosaic_objc_runtimeMutationEpoch();
+	report.mutation_epoch = epochAfter;
+	if (epochBefore != epochAfter)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+	}
 	*outReport = report;
+	return YES;
+}
+
+BOOL mosaic_objc_imageDetach(mosaic_objc_image_t image, uint64_t expectedMutationEpoch)
+{
+	if ((image == NULL) || (expectedMutationEpoch == 0)) { return NO; }
+	struct mosaic_objc_image_unload_report report = {0};
+	if (!mosaic_objc_imageGetUnloadReport(image, &report)) { return NO; }
+	if (report.state == MOSAIC_OBJC_IMAGE_DETACHED)
+	{
+		return (report.blockers == 0) &&
+		       (report.mutation_epoch == expectedMutationEpoch);
+	}
+	if ((report.state != MOSAIC_OBJC_IMAGE_RETIRED) ||
+	    (report.blockers != 0) ||
+	    (report.mutation_epoch != expectedMutationEpoch)) { return NO; }
+	init_runtime();
+	LOCK_RUNTIME_FOR_SCOPE();
+	if (!objc_image_is_registered(image) ||
+	    (image->state != MOSAIC_OBJC_IMAGE_RETIRED) ||
+	    (mosaic_objc_runtimeMutationEpoch() != expectedMutationEpoch)) { return NO; }
+	memset(&image->init_storage, 0, sizeof(image->init_storage));
+	image->init = &image->init_storage;
+	image->state = MOSAIC_OBJC_IMAGE_DETACHED;
+	struct mosaic_objc_runtime_event event = {0};
+	event.kind = MOSAIC_OBJC_EVENT_IMAGE_DETACHED;
+	event.image = image;
+	event.detail = "detached";
+	mosaic_objc_emitRuntimeEvent(&event);
 	return YES;
 }
 

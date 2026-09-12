@@ -38,7 +38,8 @@ enum mosaic_objc_runtime_event_kind
     MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATIONS_EXCHANGED,
     MOSAIC_OBJC_EVENT_CLASS_RELOADED,
     MOSAIC_OBJC_EVENT_CLASS_RELOAD_REJECTED,
-    MOSAIC_OBJC_EVENT_IMAGE_RETIRED
+    MOSAIC_OBJC_EVENT_IMAGE_RETIRED,
+    MOSAIC_OBJC_EVENT_IMAGE_DETACHED
 };
 
 struct mosaic_objc_runtime_event
@@ -72,7 +73,8 @@ OBJC_PUBLIC void mosaic_objc_runtimeSetEventSink(
 enum mosaic_objc_image_state
 {
     MOSAIC_OBJC_IMAGE_ACTIVE = 1,
-    MOSAIC_OBJC_IMAGE_RETIRED
+    MOSAIC_OBJC_IMAGE_RETIRED,
+    MOSAIC_OBJC_IMAGE_DETACHED
 };
 
 enum mosaic_objc_image_unload_blocker
@@ -104,6 +106,8 @@ struct mosaic_objc_image_unload_report
 {
     enum mosaic_objc_image_state state;
     uint32_t blockers;
+    /** Consistency token for imageDetach; not an authorization to unmap code. */
+    uint64_t mutation_epoch;
     size_t mapped_size;
     size_t class_metadata_count;
     size_t protocol_metadata_count;
@@ -128,6 +132,12 @@ OBJC_PUBLIC BOOL mosaic_objc_imageSetAddressRange(mosaic_objc_image_t image,
                                                    size_t mappedSize);
 /** Marks an image retired. Retirement is monotonic and does not unmap memory. */
 OBJC_PUBLIC BOOL mosaic_objc_imageRetire(mosaic_objc_image_t image);
+/**
+ * Detaches a blocker-free retired image using a fresh mutation-epoch token.
+ * Detach drops registry references to loader ranges; it does not unmap code.
+ */
+OBJC_PUBLIC BOOL mosaic_objc_imageDetach(mosaic_objc_image_t image,
+                                          uint64_t expectedMutationEpoch);
 /** Produces a conservative snapshot of known unload blockers. */
 OBJC_PUBLIC BOOL mosaic_objc_imageGetUnloadReport(
     mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport);

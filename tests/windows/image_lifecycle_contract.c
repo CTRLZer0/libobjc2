@@ -31,7 +31,8 @@ static size_t event_count;
 static void event_sink(const struct mosaic_objc_runtime_event *event, void *context)
 {
     (void)context;
-    if (event->kind == MOSAIC_OBJC_EVENT_IMAGE_RETIRED)
+    if ((event->kind == MOSAIC_OBJC_EVENT_IMAGE_RETIRED) ||
+        (event->kind == MOSAIC_OBJC_EVENT_IMAGE_DETACHED))
     {
         last_event = event->kind;
         event_count++;
@@ -138,6 +139,33 @@ int main(void)
     CHECK(report.blockers == 0);
     CHECK(mosaic_objc_imageIsUnloadCandidate(image, &report));
     CHECK(report.blockers == 0);
+    CHECK(report.mutation_epoch != 0);
+    uint64_t stale_epoch = report.mutation_epoch;
+
+    mosaic_objc_runtimeSetEventSink(NULL, NULL);
+    SEL epoch_selector = sel_registerTypedName_np("lifecycleEpochMutation", "Q@:");
+    CHECK(epoch_selector != NULL);
+    CHECK(class_addMethod(holder, epoch_selector,
+                          (IMP)(void *)replacement_method, "Q@:") == YES);
+    CHECK(!mosaic_objc_imageDetach(image, stale_epoch));
+
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(image, &report));
+    CHECK(report.blockers == 0);
+    CHECK(report.mutation_epoch > stale_epoch);
+    uint64_t fresh_epoch = report.mutation_epoch;
+
+    mosaic_objc_runtimeSetEventSink(event_sink, NULL);
+    CHECK(mosaic_objc_imageDetach(image, fresh_epoch));
+    CHECK(event_count == 2);
+    CHECK(last_event == MOSAIC_OBJC_EVENT_IMAGE_DETACHED);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(image, &report));
+    CHECK(report.state == MOSAIC_OBJC_IMAGE_DETACHED);
+    CHECK(report.blockers == 0);
+    CHECK(report.mutation_epoch > fresh_epoch);
+    CHECK(mosaic_objc_imageDetach(image, report.mutation_epoch));
+    CHECK(mosaic_objc_imageRetire(image));
 
     Class base = objc_allocateClassPair(Nil, "MosaicLifecycleBase", 0);
     CHECK(base != Nil);
@@ -174,7 +202,7 @@ int main(void)
     CHECK(mosaic_objc_imageSetAddressRange(
         class_image, (const void *)(uintptr_t)0x100000, 0x1000));
     CHECK(mosaic_objc_imageRetire(class_image));
-    CHECK(event_count == 2);
+    CHECK(event_count == 3);
 
     memset(&report, 0, sizeof(report));
     CHECK(mosaic_objc_imageGetUnloadReport(class_image, &report));
@@ -186,11 +214,14 @@ int main(void)
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_NOT_RETIRED) == 0);
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_ADDRESS_RANGE_UNKNOWN) == 0);
     CHECK(!mosaic_objc_imageIsUnloadCandidate(class_image, NULL));
+    CHECK(!mosaic_objc_imageDetach(class_image, report.mutation_epoch));
 
     CHECK(!mosaic_objc_imageGetUnloadReport(NULL, &report));
     CHECK(!mosaic_objc_imageGetUnloadReport(image, NULL));
     CHECK(!mosaic_objc_imageSetAddressRange(NULL, mapped_base, 1));
     CHECK(!mosaic_objc_imageRetire(NULL));
+    CHECK(!mosaic_objc_imageDetach(NULL, 1));
+    CHECK(!mosaic_objc_imageDetach(image, 0));
 
     mosaic_objc_runtimeSetEventSink(NULL, NULL);
     return 0;

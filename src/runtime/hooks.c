@@ -7,6 +7,7 @@
 static mosaic_objc_runtime_event_sink_t runtime_event_sink;
 static void *runtime_event_context;
 static uint64_t runtime_event_sequence;
+static uint64_t runtime_mutation_epoch;
 
 void mosaic_objc_runtimeSetEventSink(mosaic_objc_runtime_event_sink_t sink,
                                      void *context)
@@ -18,9 +19,15 @@ void mosaic_objc_runtimeSetEventSink(mosaic_objc_runtime_event_sink_t sink,
 	__atomic_store_n(&runtime_event_sink, sink, __ATOMIC_RELEASE);
 }
 
+PRIVATE uint64_t mosaic_objc_runtimeMutationEpoch(void)
+{
+	return __atomic_load_n(&runtime_mutation_epoch, __ATOMIC_ACQUIRE);
+}
+
 PRIVATE void mosaic_objc_emitRuntimeEvent(struct mosaic_objc_runtime_event *event)
 {
 	if (event == NULL) { return; }
+	__atomic_add_fetch(&runtime_mutation_epoch, 1, __ATOMIC_RELEASE);
 	mosaic_objc_runtime_event_sink_t sink =
 		__atomic_load_n(&runtime_event_sink, __ATOMIC_ACQUIRE);
 	if (sink == NULL) { return; }
