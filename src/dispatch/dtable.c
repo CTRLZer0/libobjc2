@@ -1,6 +1,7 @@
 #define __BSD_VISIBLE 1
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 #include <errno.h>
 #include "objc/runtime.h"
