@@ -210,3 +210,6 @@ if (OLDABI_COMPAT)
 		"-O2 -fobjc-runtime=gnustep-1.7 -UNDEBUG"
 		"LegacyABIContract.m" objc "")
 endif()
+
+# Cross-platform operating-system backend contract.
+add_subdirectory(platform)

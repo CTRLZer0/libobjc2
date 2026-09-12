@@ -13,6 +13,7 @@
 #endif
 #include <tsl/robin_map.h>
 #import "lock.h"
+#import "platform.h"
 #import "objc/runtime.h"
 #ifdef EMBEDDED_BLOCKS_RUNTIME
 #import "objc/blocks/private.h"
@@ -46,45 +47,8 @@
 
 extern "C" id (*_objc_weak_load)(id object);
 
-#if defined(_WIN32)
-// We're using the Fiber-Local Storage APIs on Windows
-// because the TLS APIs won't pass app certification.
-// Additionally, the FLS API surface is 1:1 mapped to
-// the TLS API surface when fibers are not in use.
-#	include "safewindows.h"
-#	define arc_tls_store FlsSetValue
-#	define arc_tls_load FlsGetValue
-#	define TLS_CALLBACK(name) void WINAPI name
-
-typedef DWORD arc_tls_key_t;
-typedef void WINAPI(*arc_cleanup_function_t)(void*);
-static inline arc_tls_key_t arc_tls_key_create(arc_cleanup_function_t cleanupFunction)
-{
-	return FlsAlloc(cleanupFunction);
-}
-
-#else // if defined(_WIN32)
-
-#	ifndef NO_PTHREADS
-#		include <pthread.h>
-#		define arc_tls_store pthread_setspecific
-#		define arc_tls_load pthread_getspecific
-#		define TLS_CALLBACK(name) void name
-
-typedef pthread_key_t arc_tls_key_t;
-typedef void (*arc_cleanup_function_t)(void*);
-static inline arc_tls_key_t arc_tls_key_create(arc_cleanup_function_t cleanupFunction)
-{
-	pthread_key_t key;
-	pthread_key_create(&key, cleanupFunction);
-	return key;
-}
-#	endif
-#endif
-
-#ifdef arc_tls_store
-arc_tls_key_t ARCThreadKey;
-#endif
+static objc_platform_tls_key_t ARCThreadKey;
+static BOOL ARCThreadKeyValid = NO;
 
 #ifndef HAVE_BLOCK_USE_RR2
 extern "C"
@@ -145,17 +109,19 @@ static inline T* new_zeroed()
 
 static inline struct arc_tls* getARCThreadData(void)
 {
-#ifndef arc_tls_store
-	return NULL;
-#else // !defined arc_tls_store
-	auto tls = static_cast<struct arc_tls*>(arc_tls_load(ARCThreadKey));
-	if (NULL == tls)
+	if (!ARCThreadKeyValid) { return NULL; }
+	auto tls = static_cast<struct arc_tls*>(objc_platform_tls_get(&ARCThreadKey));
+	if (tls == NULL)
 	{
 		tls = new_zeroed<struct arc_tls>();
-		arc_tls_store(ARCThreadKey, tls);
+		if (tls == NULL) { return NULL; }
+		if (objc_platform_tls_set(&ARCThreadKey, tls) != 0)
+		{
+			free(tls);
+			return NULL;
+		}
 	}
 	return tls;
-#endif
 }
 static inline void release(id obj);
 
@@ -232,9 +198,9 @@ static void emptyPool(struct arc_tls *tls, void *stopAt)
 	/* fprintf(stderr, "New insert: %p.  Stop: %p\n", tls->pool->insert, stop); */
 }
 
-#ifdef arc_tls_store
-static TLS_CALLBACK(cleanupPools)(struct arc_tls* tls)
+static void cleanupPools(void *raw)
 {
+	struct arc_tls *tls = static_cast<struct arc_tls*>(raw);
 	if (tls->returnRetained)
 	{
 		release(tls->returnRetained);
@@ -251,7 +217,7 @@ static TLS_CALLBACK(cleanupPools)(struct arc_tls* tls)
 	}
 	free(tls);
 }
-#endif
+
 
 
 static Class AutoreleasePool;
@@ -1201,9 +1167,7 @@ PRIVATE extern "C" void init_arc(void)
 	// Force the weak-table stripes (and their locks) to be constructed before
 	// any weak operation can run.
 	weakTable().init();
-#ifdef arc_tls_store
-	ARCThreadKey = arc_tls_key_create((arc_cleanup_function_t)cleanupPools);
-#endif
+	ARCThreadKeyValid = (objc_platform_tls_key_create(&ARCThreadKey, cleanupPools) == 0);
 #ifdef HAVE_BLOCK_USE_RR2
 	_Block_use_RR2(&blocks_runtime_callbacks);
 #endif

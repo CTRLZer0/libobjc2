@@ -2,6 +2,7 @@
 #include "objc/runtime.h"
 #include "gc_ops.h"
 #include "class.h"
+#include "platform.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,41 +41,15 @@ static id allocate_class(Class cls, size_t extraBytes)
 	if (sizeof(intptr_t) > SIZE_MAX - size) { return NULL; }
 	size += sizeof(intptr_t);
 
-	intptr_t *addr;
-#ifdef _WIN32
-	addr = _aligned_malloc(size, OBJC_ALLOC_ALIGN);
+	intptr_t *addr = objc_platform_aligned_alloc_zero(OBJC_ALLOC_ALIGN, size);
 	if (addr == NULL) { return NULL; }
-	memset(addr, 0, size);
-#else
-	// calloc/malloc already return memory aligned to _Alignof(max_align_t); only
-	// a larger requested alignment needs posix_memalign, which provides it
-	// without requiring `size` to be a multiple of it (unlike aligned_alloc) but
-	// does not zero, so clear explicitly.  The condition is a compile-time
-	// constant, so this collapses to a single branch.
-	if (OBJC_ALLOC_ALIGN > _Alignof(max_align_t))
-	{
-		if (posix_memalign((void**)&addr, OBJC_ALLOC_ALIGN, size) != 0)
-		{
-			return NULL;
-		}
-		memset(addr, 0, size);
-	}
-	else
-	{
-		addr = calloc(1, size);
-	}
-#endif
 	return (id)(addr + 1);
 }
 
 static void free_object(id obj)
 {
 	if (obj == nil) { return; }
-#ifdef _WIN32
-	_aligned_free((void*)(((intptr_t*)obj) - 1));
-#else
-	free((void*)(((intptr_t*)obj) - 1));
-#endif
+	objc_platform_aligned_free((void*)(((intptr_t*)obj) - 1));
 }
 
 static void *alloc(size_t size)

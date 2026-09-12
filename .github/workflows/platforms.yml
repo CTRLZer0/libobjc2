@@ -1,0 +1,65 @@
+name: Platform Compatibility CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-platform:
+    name: Linux / ${{ matrix.build-type }} / platform contracts
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build-type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang ninja-build
+      - name: Configure
+        run: |
+          cmake -S . -B build-platform-${{ matrix.build-type }} -G Ninja \
+            -DTESTS=ON -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_OBJC_COMPILER=clang -DCMAKE_OBJCXX_COMPILER=clang++ \
+            -DCMAKE_ASM_COMPILER=clang
+      - name: Build
+        run: cmake --build build-platform-${{ matrix.build-type }} --parallel
+      - name: Platform contracts
+        run: ctest --test-dir build-platform-${{ matrix.build-type }} -L platform --output-on-failure
+
+  freebsd:
+    name: FreeBSD 15.1 / native runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and test in FreeBSD
+        uses: vmactions/freebsd-vm@8b0f1a8fc0ea0def307835c258940ca358fe6480 # v1.5.6
+        with:
+          release: "15.1"
+          sync: rsync
+          copyback: false
+          prepare: |
+            pkg install -y cmake ninja pkgconf git
+          run: |
+            set -eu
+            freebsd-version
+            clang --version
+            cmake -S . -B build-freebsd -G Ninja \
+              -DTESTS=ON -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DCMAKE_OBJC_COMPILER=clang -DCMAKE_OBJCXX_COMPILER=clang++ \
+              -DCMAKE_ASM_COMPILER=clang
+            cmake --build build-freebsd --parallel
+            ctest --test-dir build-freebsd -L platform --output-on-failure
+            ctest --test-dir build-freebsd --output-on-failure -j 2

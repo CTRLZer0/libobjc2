@@ -55,6 +55,36 @@ set(BUILD_STATIC_LIBOBJC_DEFAULT OFF)
 
 option(WASM "Build WebAssembly-specific runtime support" "${EMSCRIPTEN}")
 
+# Keep operating-system dependencies behind a small internal platform contract.
+# New ports can select a custom backend with -DOBJC_PLATFORM_BACKEND=<name> and
+# provide platform_<name>.h/.c without changing runtime subsystems.
+set(OBJC_PLATFORM_BACKEND "auto" CACHE STRING "Internal operating-system backend")
+if (OBJC_PLATFORM_BACKEND STREQUAL "auto")
+	if (WASM)
+		set(OBJC_PLATFORM_BACKEND "wasm")
+	elseif (WIN32)
+		set(OBJC_PLATFORM_BACKEND "windows")
+	elseif (UNIX)
+		set(OBJC_PLATFORM_BACKEND "posix")
+	else()
+		message(FATAL_ERROR
+			"No platform backend for ${CMAKE_SYSTEM_NAME}. Set OBJC_PLATFORM_BACKEND to a backend name.")
+	endif()
+endif()
+string(TOLOWER "${OBJC_PLATFORM_BACKEND}" OBJC_PLATFORM_BACKEND)
+set(OBJC_PLATFORM_SOURCE "src/platform/platform_${OBJC_PLATFORM_BACKEND}.c")
+set(OBJC_PLATFORM_HEADER "src/internal/platform/platform_${OBJC_PLATFORM_BACKEND}.h")
+foreach(_platform_file IN ITEMS ${OBJC_PLATFORM_SOURCE} ${OBJC_PLATFORM_HEADER})
+    if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_platform_file}")
+        message(FATAL_ERROR
+            "Platform backend '${OBJC_PLATFORM_BACKEND}' requires ${_platform_file}")
+    endif()
+endforeach()
+string(TOUPPER "${OBJC_PLATFORM_BACKEND}" OBJC_PLATFORM_BACKEND_DEFINE)
+add_compile_definitions("OBJC_PLATFORM_${OBJC_PLATFORM_BACKEND_DEFINE}=1")
+add_compile_definitions("OBJC_PLATFORM_BACKEND_HEADER=\"platform_${OBJC_PLATFORM_BACKEND}.h\"")
+message(STATUS "libobjc2 platform backend: ${OBJC_PLATFORM_BACKEND}")
+
 if (WASM)
    # For WebAssembly, libobjc2 should generally be linked statically.
 	set(BUILD_SHARED_LIBOBJC_DEFAULT OFF)
@@ -81,6 +111,7 @@ set(libobjc_OBJC_SRCS
 	src/blocks/NSBlocks.m
 	src/blocks/blocks_runtime_np.m)
 set(libobjc_C_SRCS 
+	${OBJC_PLATFORM_SOURCE}
 	src/runtime/alias_table.c
 	src/runtime/builtin_classes.c
 	src/runtime/caps.c
@@ -244,6 +275,7 @@ set(LIBOBJC2_PRIVATE_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/memory"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/blocks"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/exceptions"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/platform"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/internal/support")
 include_directories(
     "${CMAKE_CURRENT_SOURCE_DIR}"

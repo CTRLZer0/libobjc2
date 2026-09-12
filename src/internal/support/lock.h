@@ -1,46 +1,27 @@
 /**
- * libobjc requires recursive mutexes.  These are delegated to the underlying
- * threading implementation.  This file contains a VERY thin wrapper over the
- * Windows and POSIX mutex APIs.
+ * libobjc requires recursive mutexes.  The operating-system implementation
+ * lives behind the internal platform contract so runtime code is host-agnostic.
  */
 
 #ifndef __LIBOBJC_LOCK_H_INCLUDED__
 #define __LIBOBJC_LOCK_H_INCLUDED__
-#ifdef _WIN32
-#	include "safewindows.h"
-typedef CRITICAL_SECTION mutex_t;
-#	define INIT_LOCK(x) InitializeCriticalSection(&(x))
-#	define LOCK(x) EnterCriticalSection(x)
-#	define UNLOCK(x) LeaveCriticalSection(x)
-#	define DESTROY_LOCK(x) DeleteCriticalSection(&(x))
-#else
 
-#	include <pthread.h>
+#include <assert.h>
+#include "../platform/platform.h"
 
-typedef pthread_mutex_t mutex_t;
-// If this pthread implementation has a static initializer for recursive
-// mutexes, use that, otherwise fall back to the portable version
-#	ifdef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
-#		define INIT_LOCK(x) x = (pthread_mutex_t)PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
-#	elif defined(PTHREAD_RECURSIVE_MUTEX_INITIALIZER)
-#		define INIT_LOCK(x) x = (pthread_mutex_t)PTHREAD_RECURSIVE_MUTEX_INITIALIZER
-#	else
-#		define INIT_LOCK(x) init_recursive_mutex(&(x))
+typedef objc_platform_mutex_t mutex_t;
 
-static inline void init_recursive_mutex(pthread_mutex_t *x)
+static inline void init_recursive_mutex(mutex_t *mutex)
 {
-	pthread_mutexattr_t recursiveAttributes;
-	pthread_mutexattr_init(&recursiveAttributes);
-	pthread_mutexattr_settype(&recursiveAttributes, PTHREAD_MUTEX_RECURSIVE);
-	pthread_mutex_init(x, &recursiveAttributes);
-	pthread_mutexattr_destroy(&recursiveAttributes);
+	int result = objc_platform_mutex_init_recursive(mutex);
+	assert(result == 0);
+	(void)result;
 }
-#	endif
 
-#	define LOCK(x) pthread_mutex_lock(x)
-#	define UNLOCK(x) pthread_mutex_unlock(x)
-#	define DESTROY_LOCK(x) pthread_mutex_destroy(&(x))
-#endif
+#define INIT_LOCK(x) init_recursive_mutex(&(x))
+#define LOCK(x) objc_platform_mutex_lock(x)
+#define UNLOCK(x) objc_platform_mutex_unlock(x)
+#define DESTROY_LOCK(x) objc_platform_mutex_destroy(&(x))
 
 __attribute__((unused)) static void objc_release_lock(void *x)
 {

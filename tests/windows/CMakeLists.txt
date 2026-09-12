@@ -162,3 +162,6 @@ add_mosaic_runtime_test(
 	bitfield_contract.c)
 target_include_directories(mosaic_objc_bitfield_contract PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../src/internal/runtime")
+
+# Cross-platform operating-system backend contract.
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../platform" "${CMAKE_CURRENT_BINARY_DIR}/platform")

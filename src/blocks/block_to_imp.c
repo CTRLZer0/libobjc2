@@ -8,13 +8,6 @@
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
-#ifndef _WIN32
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/mman.h>
-#else
-#include "safewindows.h"
-#endif
 #include "crt_compat.h"
 #include "objc/runtime.h"
 #include "objc/blocks/runtime.h"
@@ -22,98 +15,12 @@
 #include "block_lifecycle.h"
 #include "observability.h"
 #include "lock.h"
+#include "platform.h"
 #include "visibility.h"
-
-#ifndef __has_builtin
-#define __has_builtin(x) 0
-#endif
-
-#if defined(_WIN32)
-long pagesize(void)
-{
-  SYSTEM_INFO si;
-  GetSystemInfo(&si);
-
-  DWORD page_size = si.dwPageSize;
-  assert(page_size <= INT_MAX);
-
-  return (int)page_size;
-}
-#else
-long pagesize(void)
-{
-    return sysconf(_SC_PAGESIZE);
-}
-#endif // defined(_WIN32)
-
-#if defined(_WIN32) && (defined(__arm__) || defined(__aarch64__))
-    static inline void __clear_cache(void* start, void* end) {
-        FlushInstructionCache(GetCurrentProcess(), start, end - start);
-    }
-    #define clear_cache __clear_cache
-#elif __has_builtin(__builtin___clear_cache)
-    #define clear_cache __builtin___clear_cache
-#else
-    void __clear_cache(void* start, void* end);
-    #define clear_cache __clear_cache
-#endif
-
 
 /* QNX needs a special header for asprintf() */
 #ifdef __QNXNTO__
 #include <nbutil.h>
-#endif
-
-#ifdef _WIN32
-#if defined(WINAPI_FAMILY) && WINAPI_FAMILY != WINAPI_FAMILY_DESKTOP_APP && _WIN32_WINNT >= 0x0A00
-// Prefer the *FromApp versions when we're being built in a Windows Store App context on
-// Windows >= 10. *FromApp require the application to be manifested for "codeGeneration".
-#define VirtualAlloc VirtualAllocFromApp
-#define VirtualProtect VirtualProtectFromApp
-#endif // App family partition
-
-#ifndef PROT_READ
-#define PROT_READ  0x4
-#endif
-
-#ifndef PROT_WRITE
-#define PROT_WRITE 0x2
-#endif
-
-#ifndef PROT_EXEC
-#define PROT_EXEC  0x1
-#endif
-
-static int mprotect(void *buffer, size_t len, int prot)
-{
-	DWORD oldProt = 0, newProt = PAGE_NOACCESS;
-	// Windows doesn't offer values that can be ORed together...
-	if ((prot & PROT_WRITE))
-	{
-		// promote to readwrite as there's no writeonly protection constant
-		newProt = PAGE_READWRITE;
-	}
-	else if ((prot & PROT_READ))
-	{
-		newProt = PAGE_READONLY;
-	}
-
-	if ((prot & PROT_EXEC))
-	{
-		switch (newProt)
-		{
-			case PAGE_NOACCESS: newProt = PAGE_EXECUTE; break;
-			case PAGE_READONLY: newProt = PAGE_EXECUTE_READ; break;
-			case PAGE_READWRITE: newProt = PAGE_EXECUTE_READWRITE; break;
-		}
-	}
-
-	return 0 != VirtualProtect(buffer, len, newProt, &oldProt);
-}
-#else
-#	ifndef MAP_ANONYMOUS
-#		define MAP_ANONYMOUS MAP_ANON
-#	endif
 #endif
 
 struct block_header
@@ -215,9 +122,9 @@ PRIVATE void init_trampolines(void)
 	trampoline_page_size = 0x10000;
 	// Check that the pagesize is greater or equal to the smallest size that we
 	// can perform mprotect operations on.
-	assert(pagesize() <= trampoline_page_size);
+	assert(objc_platform_page_size() <= (size_t)trampoline_page_size);
 	#else
-	trampoline_page_size = pagesize();
+	trampoline_page_size = (int)objc_platform_page_size();
 	#endif
 
 	trampoline_region_size = trampoline_page_size * TRAMPOLINE_REGION_PAGES;
@@ -271,21 +178,12 @@ static struct trampoline_set *alloc_trampolines(char *start, char *end)
 {
 	struct trampoline_set *metadata = calloc(1, sizeof(struct trampoline_set));
 	if (metadata == NULL) { return NULL; }
-#if _WIN32
-	metadata->region = VirtualAlloc(NULL, trampoline_region_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	metadata->region = objc_platform_pages_allocate(trampoline_region_size);
 	if (metadata->region == NULL)
 	{
 		free(metadata);
 		return NULL;
 	}
-#else
-	metadata->region = mmap(NULL, trampoline_region_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-	if (metadata->region == MAP_FAILED)
-	{
-		free(metadata);
-		return NULL;
-	}
-#endif
 	metadata->first_free = 0;
 	struct block_header *headers_start = REGION_HEADERS_START(metadata);
 	char *rx_buffer_start = REGION_RX_BUFFER_START(metadata);
@@ -298,8 +196,14 @@ static struct trampoline_set *alloc_trampolines(char *start, char *end)
 		memcpy(block, start, end-start);
 	}
 	headers_start[trampoline_header_per_page-1].block = NULL;
-	mprotect(rx_buffer_start, trampoline_page_size, PROT_READ | PROT_EXEC);
-	clear_cache(rx_buffer_start, rx_buffer_start + trampoline_page_size);
+	if (objc_platform_pages_protect(rx_buffer_start, trampoline_page_size,
+	                                OBJC_PLATFORM_PAGE_READ | OBJC_PLATFORM_PAGE_EXEC) != 0)
+	{
+		objc_platform_pages_release(metadata->region, trampoline_region_size);
+		free(metadata);
+		return NULL;
+	}
+	objc_platform_instruction_cache_flush(rx_buffer_start, trampoline_page_size);
 
 	return metadata;
 }
