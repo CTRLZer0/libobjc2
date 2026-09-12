@@ -51,6 +51,21 @@ __attribute__((weak)) void __cxa_end_catch(void);
 __attribute__((weak)) void __cxa_rethrow(void);
 __attribute__((weak)) struct __cxa_eh_globals *__cxa_get_globals(void);
 
+typedef void (*exception_rethrow_imp_t)(id, SEL);
+typedef id (*foreign_exception_box_imp_t)(id, SEL, struct _Unwind_Exception*);
+
+static inline exception_rethrow_imp_t exception_rethrow_imp(IMP imp)
+{
+	union { IMP raw; exception_rethrow_imp_t typed; } value = { .raw = imp };
+	return value.typed;
+}
+
+static inline foreign_exception_box_imp_t foreign_exception_box_imp(IMP imp)
+{
+	union { IMP raw; foreign_exception_box_imp_t typed; } value = { .raw = imp };
+	return value.typed;
+}
+
 
 /**
  * Class of exceptions to distinguish between this and other exception types.
@@ -236,7 +251,8 @@ void objc_exception_throw(id object)
 	    (class_respondsToSelector(classForObject(object), rethrow_sel)))
 	{
 		DEBUG_LOG("Rethrowing\n");
-		IMP rethrow = objc_msg_lookup(object, rethrow_sel);
+		exception_rethrow_imp_t rethrow =
+			exception_rethrow_imp(objc_msg_lookup(object, rethrow_sel));
 		rethrow(object, rethrow_sel);
 		// Should not be reached!  If it is, then the rethrow method actually
 		// didn't, so we throw it normally.
@@ -527,7 +543,8 @@ static inline _Unwind_Reason_Code internal_objc_personality(int version,
 			DEBUG_LOG("Doing the foreign exception thing...\n");
 			//[thrown_class exceptionWithForeignException: exceptionObject];
 			SEL box_sel = sel_registerName("exceptionWithForeignException:");
-			IMP boxfunction = objc_msg_lookup((id)thrown_class, box_sel);
+			foreign_exception_box_imp_t boxfunction =
+				foreign_exception_box_imp(objc_msg_lookup((id)thrown_class, box_sel));
 			if (!isNew)
 			{
 				object = boxfunction((id)thrown_class, box_sel, exceptionObject);
@@ -760,7 +777,8 @@ OBJC_PUBLIC void objc_exception_rethrow(struct _Unwind_Exception *e)
 		    (class_respondsToSelector(classForObject(object), rethrow_sel)))
 		{
 			DEBUG_LOG("Rethrowing boxed exception\n");
-			IMP rethrow = objc_msg_lookup(object, rethrow_sel);
+			exception_rethrow_imp_t rethrow =
+				exception_rethrow_imp(objc_msg_lookup(object, rethrow_sel));
 			rethrow(object, rethrow_sel);
 		}
 	}

@@ -73,6 +73,8 @@ extern "C" void __stdcall _CxxThrowException(void*, _MSVC_ThrowInfo*);
 namespace
 {
 
+using exception_rethrow_imp_t = void (*)(id, SEL);
+
 static std::string mangleObjcObject()
 {
 #if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ == 8
@@ -125,7 +127,8 @@ OBJC_PUBLIC extern "C" void objc_exception_throw(id object)
 	if ((nil != object) &&
 		(class_respondsToSelector(object_getClass(object), rethrow_sel)))
 	{
-		IMP rethrow = objc_msg_lookup(object, rethrow_sel);
+		auto rethrow = reinterpret_cast<exception_rethrow_imp_t>(
+			objc_msg_lookup(object, rethrow_sel));
 		rethrow(object, rethrow_sel);
 		// Should not be reached!  If it is, then the rethrow method actually
 		// didn't, so we throw it normally.
