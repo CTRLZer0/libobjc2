@@ -94,6 +94,19 @@ static void lifecycle_pool_add(id self, SEL _cmd, id object)
     (void)self; (void)_cmd; (void)object;
     lifecycle_pool_counter += 3;
 }
+static volatile uintptr_t lifecycle_cxx_counter;
+static id lifecycle_cxx_destruct_old(id self, SEL _cmd)
+{
+    (void)_cmd;
+    lifecycle_cxx_counter += 5;
+    return self;
+}
+static id lifecycle_cxx_destruct_new(id self, SEL _cmd)
+{
+    (void)_cmd;
+    lifecycle_cxx_counter += 11;
+    return self;
+}
 
 static mosaic_objc_image_t load_empty_image(struct objc_init *init)
 {
@@ -375,6 +388,33 @@ int main(void)
     CHECK(report.runtime_cache_reference_count >= 1);
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE) != 0);
     CHECK(!mosaic_objc_imageIsUnloadCandidate(arc_cache_image, NULL));
+
+    Class cxx_class = objc_allocateClassPair(Nil, "MosaicLifecycleCxxCache", 0);
+    CHECK(cxx_class != Nil);
+    SEL cxx_destruct_selector = sel_registerName(".cxx_destruct");
+    CHECK(class_addMethod(cxx_class, cxx_destruct_selector,
+                          (IMP)(void *)lifecycle_cxx_destruct_old, "@@:"));
+    objc_registerClassPair(cxx_class);
+    Method cxx_method = class_getInstanceMethod(cxx_class, cxx_destruct_selector);
+    CHECK(cxx_method != NULL);
+    CHECK(method_setImplementation(
+              cxx_method, (IMP)(void *)lifecycle_cxx_destruct_new) ==
+          (IMP)(void *)lifecycle_cxx_destruct_old);
+    CHECK(cxx_class->cxx_destruct == (IMP)(void *)lifecycle_cxx_destruct_old);
+
+    struct objc_init cxx_cache_init;
+    mosaic_objc_image_t cxx_cache_image = load_empty_image(&cxx_cache_init);
+    CHECK(cxx_cache_image != NULL);
+    memset(&cxx_cache_init, 0, sizeof(cxx_cache_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        cxx_cache_image, (const void *)(uintptr_t)(void *)lifecycle_cxx_destruct_old, 1));
+    CHECK(mosaic_objc_imageRetire(cxx_cache_image));
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(cxx_cache_image, &report));
+    CHECK(report.executable_reference_count == 0);
+    CHECK(report.runtime_cache_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE) != 0);
+    CHECK(!mosaic_objc_imageIsUnloadCandidate(cxx_cache_image, NULL));
 
     CHECK(!mosaic_objc_imageGetUnloadReport(NULL, &report));
     CHECK(!mosaic_objc_imageGetUnloadReport(image, NULL));

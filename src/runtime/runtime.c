@@ -213,6 +213,7 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 	m0->selector = typedSelector;
 	m0->types = typeCopy;
 	m0->imp = imp;
+	mosaic_objc_beginRuntimeMutation();
 	cls->methods = methods;
 	update_cxx_method_cache(cls, methodName, imp);
 
@@ -220,6 +221,7 @@ BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 	{
 		add_method_list_to_class(cls, methods);
 	}
+	mosaic_objc_endRuntimeMutation();
 
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_ADDED;
@@ -535,8 +537,10 @@ IMP class_replaceMethod(Class cls, SEL name, IMP imp, const char *types)
 		return NULL;
 	}
 	IMP old = (IMP)method->imp;
+	mosaic_objc_beginRuntimeMutation();
 	method->imp = imp;
 	update_cxx_method_cache(cls, sel_getName(sel), imp);
+	mosaic_objc_endRuntimeMutation();
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_REPLACED;
 	event.cls = cls;
@@ -655,8 +659,10 @@ void method_exchangeImplementations(Method m1, Method m2)
 	if (NULL == m1 || NULL == m2) { return; }
 	IMP tmp = (IMP)m1->imp;
 	IMP second = (IMP)m2->imp;
+	mosaic_objc_beginRuntimeMutation();
 	m1->imp = second;
 	m2->imp = tmp;
+	mosaic_objc_endRuntimeMutation();
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATIONS_EXCHANGED;
 	event.method = m1;
@@ -685,7 +691,9 @@ IMP method_setImplementation(Method method, IMP imp)
 {
 	if (NULL == method) { return (IMP)NULL; }
 	IMP old = (IMP)method->imp;
+	mosaic_objc_beginRuntimeMutation();
 	method->imp = imp;
+	mosaic_objc_endRuntimeMutation();
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATION_CHANGED;
 	event.method = method;

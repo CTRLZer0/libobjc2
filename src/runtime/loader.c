@@ -394,6 +394,22 @@ static void objc_image_scan_method_code(
 		}
 	}
 	free(methods);
+	IMP cached[] = { cls->cxx_construct, cls->cxx_destruct };
+	for (size_t i = 0; i < sizeof(cached) / sizeof(cached[0]); i++)
+	{
+		if ((cached[i] != NULL) &&
+		    objc_image_contains_address(image, (uintptr_t)(void*)cached[i]))
+		{
+			if (report->runtime_cache_reference_count == SIZE_MAX)
+			{
+				report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+			}
+			else
+			{
+				report->runtime_cache_reference_count++;
+			}
+		}
+	}
 }
 
 BOOL mosaic_objc_imageSetAddressRange(mosaic_objc_image_t image,
@@ -539,8 +555,17 @@ BOOL mosaic_objc_imageGetUnloadReport(
 		    mosaic_objc_countGlobalHookReferences(base, image->mapped_size);
 		report.tracing_hook_reference_count =
 		    objc2_countTracingHookReferences(base, image->mapped_size);
-		report.runtime_cache_reference_count =
+		size_t arcCacheReferences =
 		    objc2_countArcCacheCodeReferences(base, image->mapped_size);
+		if (arcCacheReferences > SIZE_MAX - report.runtime_cache_reference_count)
+		{
+			report.runtime_cache_reference_count = SIZE_MAX;
+			report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
+		}
+		else
+		{
+			report.runtime_cache_reference_count += arcCacheReferences;
+		}
 	}
 	if (report.global_hook_reference_count != 0)
 	{
