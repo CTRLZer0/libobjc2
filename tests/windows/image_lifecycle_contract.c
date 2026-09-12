@@ -429,7 +429,8 @@ int main(void)
     CHECK(method_setImplementation(
               cxx_method, (IMP)(void *)lifecycle_cxx_destruct_new) ==
           (IMP)(void *)lifecycle_cxx_destruct_old);
-    CHECK(cxx_class->cxx_destruct == (IMP)(void *)lifecycle_cxx_destruct_old);
+    CHECK(cxx_class->cxx_destruct == (IMP)(void *)lifecycle_cxx_destruct_new);
+    cxx_class->cxx_destruct = (IMP)(void *)lifecycle_cxx_destruct_old;
 
     struct objc_init cxx_cache_init;
     mosaic_objc_image_t cxx_cache_image = load_empty_image(&cxx_cache_init);
@@ -444,6 +445,7 @@ int main(void)
     CHECK(report.runtime_cache_reference_count >= 1);
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_RUNTIME_CACHE_CODE) != 0);
     CHECK(!mosaic_objc_imageIsUnloadCandidate(cxx_cache_image, NULL));
+    cxx_class->cxx_destruct = (IMP)(void *)lifecycle_cxx_destruct_new;
 
     struct Block_descriptor block_descriptor = {
         0, sizeof(struct Block_layout), lifecycle_block_copy,

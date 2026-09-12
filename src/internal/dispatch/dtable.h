@@ -131,6 +131,8 @@ void objc_update_dtable_for_new_superclass(Class, Class);
  */
 void add_method_list_to_class(Class cls,
                               struct objc_method_list *list);
+/** Refreshes cached C++ constructor / destructor IMPs after Method mutation. */
+PRIVATE void objc_refresh_cxx_method_caches(struct objc_method *method);
 
 /**
  * Destroys a dtable.

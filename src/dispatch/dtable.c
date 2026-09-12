@@ -386,7 +386,8 @@ static BOOL installMethodInDtable(Class class,
                                   SparseArray *dtable,
                                   struct objc_method *method,
                                   struct objc_method *method_to_replace,
-                                  BOOL replaceExisting)
+                                  BOOL replaceExisting,
+                                  BOOL updateCxxCache)
 {
 	ASSERT(uninstalled_dtable != dtable);
 	uint32_t sel_id = method->selector->index;
@@ -421,11 +422,11 @@ static BOOL installMethodInDtable(Class class,
 		&cxxConstructStorage, ".cxx_construct");
 	SEL cxx_destruct = objc2_get_or_register_selector(
 		&cxxDestructStorage, ".cxx_destruct");
-	if (selEqualUnTyped(method->selector, cxx_construct))
+	if (updateCxxCache && selEqualUnTyped(method->selector, cxx_construct))
 	{
 		class->cxx_construct = method->imp;
 	}
-	else if (selEqualUnTyped(method->selector, cxx_destruct))
+	else if (updateCxxCache && selEqualUnTyped(method->selector, cxx_destruct))
 	{
 		class->cxx_destruct = method->imp;
 	}
@@ -442,7 +443,8 @@ static BOOL installMethodInDtable(Class class,
 		                      dtable_for_class(subclass),
 		                      method,
 		                      oldMethod,
-		                      YES);
+		                      YES,
+		                      NO);
 	}
 
 	// Invalidate the old slot, if there is one.
@@ -470,7 +472,7 @@ static void installMethodsInClass(Class cls,
 		struct objc_method *method_to_replace = methods_to_replace
 			?  SparseArrayLookup(methods_to_replace, m->selector->index)
 			: NULL;
-		if (!installMethodInDtable(cls, dtable, m, method_to_replace, replaceExisting))
+		if (!installMethodInDtable(cls, dtable, m, method_to_replace, replaceExisting, YES))
 		{
 			// Remove this method from the list, if it wasn't actually installed
 			sparse_array_insert_or_abort(methods, idx, 0);
@@ -641,7 +643,7 @@ PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable)
 			struct objc_method *super_method = super_dtable
 				? SparseArrayLookup(super_dtable, method_at_index(list, i)->selector->index)
 				: NULL;
-			installMethodInDtable(class, dtable, method_at_index(list, i), super_method, YES);
+			installMethodInDtable(class, dtable, method_at_index(list, i), super_method, YES, YES);
 		}
 		list = list->next;
 	}
@@ -651,6 +653,43 @@ PRIVATE dtable_t create_dtable_for_class(Class class, dtable_t root_dtable)
 
 
 Class class_table_next(void **e);
+
+static BOOL class_owns_method(Class cls, struct objc_method *method)
+{
+	for (struct objc_method_list *list = cls->methods; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			if (method_at_index(list, i) == method) { return YES; }
+		}
+	}
+	return NO;
+}
+
+static void refresh_cxx_cache_for_class(Class cls, struct objc_method *method,
+                                        BOOL construct)
+{
+	if (!class_owns_method(cls, method)) { return; }
+	if (construct) { cls->cxx_construct = method->imp; }
+	else { cls->cxx_destruct = method->imp; }
+}
+
+PRIVATE void objc_refresh_cxx_method_caches(struct objc_method *method)
+{
+	if (method == NULL) { return; }
+	const char *name = sel_getName(method->selector);
+	BOOL construct = strcmp(name, ".cxx_construct") == 0;
+	if (!construct && (strcmp(name, ".cxx_destruct") != 0)) { return; }
+
+	LOCK_RUNTIME_FOR_SCOPE();
+	void *enumerator = NULL;
+	Class cls;
+	while ((cls = class_table_next(&enumerator)) != Nil)
+	{
+		refresh_cxx_cache_for_class(cls, method, construct);
+		if (cls->isa != Nil) { refresh_cxx_cache_for_class(cls->isa, method, construct); }
+	}
+}
 
 static inline uint64_t dtable_capacity(uint32_t depth)
 {

@@ -173,6 +173,29 @@ static void update_cxx_method_cache(Class cls, const char *name, IMP imp)
 	else if (strcmp(name, ".cxx_destruct") == 0) { cls->cxx_destruct = imp; }
 }
 
+static void rebuild_cxx_method_caches(Class cls)
+{
+	if (cls == Nil) { return; }
+	cls->cxx_construct = NULL;
+	cls->cxx_destruct = NULL;
+	for (struct objc_method_list *list = cls->methods; list != NULL; list = list->next)
+	{
+		for (int i = 0; i < list->count; i++)
+		{
+			Method method = method_at_index(list, i);
+			const char *name = sel_getName(method->selector);
+			if ((cls->cxx_construct == NULL) && (strcmp(name, ".cxx_construct") == 0))
+			{
+				cls->cxx_construct = method->imp;
+			}
+			else if ((cls->cxx_destruct == NULL) && (strcmp(name, ".cxx_destruct") == 0))
+			{
+				cls->cxx_destruct = method->imp;
+			}
+		}
+	}
+}
+
 BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)
 {
 	CHECK_ARG(cls);
@@ -657,11 +680,14 @@ const char * ivar_getTypeEncoding(Ivar ivar)
 void method_exchangeImplementations(Method m1, Method m2)
 {
 	if (NULL == m1 || NULL == m2) { return; }
+	LOCK_RUNTIME_FOR_SCOPE();
 	IMP tmp = (IMP)m1->imp;
 	IMP second = (IMP)m2->imp;
 	mosaic_objc_beginRuntimeMutation();
 	m1->imp = second;
 	m2->imp = tmp;
+	objc_refresh_cxx_method_caches(m1);
+	objc_refresh_cxx_method_caches(m2);
 	mosaic_objc_endRuntimeMutation();
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATIONS_EXCHANGED;
@@ -690,9 +716,11 @@ SEL method_getName(Method method)
 IMP method_setImplementation(Method method, IMP imp)
 {
 	if (NULL == method) { return (IMP)NULL; }
+	LOCK_RUNTIME_FOR_SCOPE();
 	IMP old = (IMP)method->imp;
 	mosaic_objc_beginRuntimeMutation();
 	method->imp = imp;
+	objc_refresh_cxx_method_caches(method);
 	mosaic_objc_endRuntimeMutation();
 	struct mosaic_objc_runtime_event event = {0};
 	event.kind = MOSAIC_OBJC_EVENT_METHOD_IMPLEMENTATION_CHANGED;
@@ -1154,6 +1182,8 @@ void objc_registerClassPair(Class cls)
 		objc_set_class_flag(cls, objc_class_flag_owned_ivar_offsets);
 	}
 	LOCK_RUNTIME_FOR_SCOPE();
+	rebuild_cxx_method_caches(cls);
+	rebuild_cxx_method_caches(cls->isa);
 	class_table_insert(cls);
 	objc_resolve_class(cls);
 	struct mosaic_objc_runtime_event event = {0};
