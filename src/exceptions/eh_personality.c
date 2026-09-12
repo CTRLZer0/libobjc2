@@ -7,6 +7,8 @@
 #include "objc/exceptions/runtime.h"
 #include "class.h"
 #include "objcxx_eh.h"
+#include "lifecycle.h"
+#include "observability.h"
 
 #ifndef DEBUG_EXCEPTIONS
 #define DEBUG_LOG(...)
@@ -769,5 +771,15 @@ OBJC_PUBLIC void objc_exception_rethrow(struct _Unwind_Exception *e)
 
 objc_uncaught_exception_handler objc_setUncaughtExceptionHandler(objc_uncaught_exception_handler handler)
 {
-	return __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
+	mosaic_objc_beginRuntimeMutation();
+	objc_uncaught_exception_handler previous =
+	    __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
+	mosaic_objc_endRuntimeMutation();
+	return previous;
+}
+
+PRIVATE size_t objc2_countExceptionHookReferences(uintptr_t base, size_t size)
+{
+	uintptr_t address = (uintptr_t)(void*)_objc_unexpected_exception;
+	return ((address >= base) && ((address - base) < size)) ? 1 : 0;
 }

@@ -9,6 +9,8 @@
 #include "objc/memory/arc.h"
 #include "objc/exceptions/runtime.h"
 #include "objc/support/hooks.h"
+#include "lifecycle.h"
+#include "observability.h"
 
 namespace __cxxabiv1
 {
@@ -88,7 +90,11 @@ void objc_exception_throw(id object)
 
 OBJC_PUBLIC extern objc_uncaught_exception_handler objc_setUncaughtExceptionHandler(objc_uncaught_exception_handler handler)
 {
-	return __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
+	mosaic_objc_beginRuntimeMutation();
+	objc_uncaught_exception_handler previous =
+	    __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
+	mosaic_objc_endRuntimeMutation();
+	return previous;
 }
 
 extern "C" void* __cxa_begin_catch(void *object);
@@ -131,4 +137,10 @@ EXCEPTION_DISPOSITION __gnu_objc_personality_seh0(PEXCEPTION_RECORD ms_exc,
 														PDISPATCHER_CONTEXT ms_disp)
 {
   return __gxx_personality_seh0(ms_exc, this_frame, ms_orig_context, ms_disp);
+}
+
+extern "C" PRIVATE size_t objc2_countExceptionHookReferences(uintptr_t base, size_t size)
+{
+	uintptr_t address = reinterpret_cast<uintptr_t>(_objc_unexpected_exception);
+	return ((address >= base) && ((address - base) < size)) ? 1 : 0;
 }

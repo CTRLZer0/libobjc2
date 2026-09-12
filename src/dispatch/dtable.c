@@ -14,6 +14,7 @@
 #include "visibility.h"
 #include "asmconstants.h"
 #include "tracing.h"
+#include "observability.h"
 
 _Static_assert(__builtin_offsetof(struct objc_class, dtable) == DTABLE_OFFSET,
 		"Incorrect dtable offset for assembly");
@@ -305,6 +306,21 @@ PRIVATE objc_tracing_hook objc2_tracing_hook_for_selector(SEL selector)
 
 #endif
 
+PRIVATE size_t objc2_countTracingHookReferences(uintptr_t base, size_t size)
+{
+#ifdef OBJC2_TRACING_SUPPORTED
+	size_t count = 0; uint32_t idx = 0; void *hook;
+	while ((hook = SparseArrayNext(tracing_dtable, &idx)) != NULL)
+	{
+		uintptr_t address = (uintptr_t)hook;
+		if ((address >= base) && ((address - base) < size)) { count++; }
+	}
+	return count;
+#else
+	(void)base; (void)size; return 0;
+#endif
+}
+
 int objc_registerTracingHook(SEL aSel, objc_tracing_hook aHook)
 {
 #ifdef OBJC2_TRACING_SUPPORTED
@@ -317,20 +333,42 @@ int objc_registerTracingHook(SEL aSel, objc_tracing_hook aHook)
 		count = sel_copyTypedSelectors_np(sel_getName(aSel), stackBuffer, 16);
 		if (count > 16)
 		{
-			selectors = calloc(count, sizeof(SEL));
-			if (selectors == NULL) { return ENOMEM; }
+			selectors = calloc(count, sizeof(SEL)); if (selectors == NULL) { return ENOMEM; }
 			unsigned actual = sel_copyTypedSelectors_np(sel_getName(aSel), selectors, count);
-			if (actual > count) { free(selectors); return EAGAIN; }
-			count = actual;
+			if (actual > count) { free(selectors); return EAGAIN; } count = actual;
 		}
+	}
+	mosaic_objc_beginRuntimeMutation();
+	if (selectors != stackBuffer)
+	{
 		for (unsigned i = 0; i < count; ++i)
 		{
 			if (!SparseArrayInsert(tracing_dtable, selectors[i]->index, aHook))
-			{ if (selectors != stackBuffer) { free(selectors); } return ENOMEM; }
+			{
+				mosaic_objc_endRuntimeMutation();
+				free(selectors);
+				return ENOMEM;
+			}
 		}
-		if (selectors != stackBuffer) { free(selectors); }
+		free(selectors);
 	}
-	if (!SparseArrayInsert(tracing_dtable, aSel->index, aHook)) { return ENOMEM; }
+	else if (sel_getType_np(aSel) == 0)
+	{
+		for (unsigned i = 0; i < count; ++i)
+		{
+			if (!SparseArrayInsert(tracing_dtable, selectors[i]->index, aHook))
+			{
+				mosaic_objc_endRuntimeMutation();
+				return ENOMEM;
+			}
+		}
+	}
+	if (!SparseArrayInsert(tracing_dtable, aSel->index, aHook))
+	{
+		mosaic_objc_endRuntimeMutation();
+		return ENOMEM;
+	}
+	mosaic_objc_endRuntimeMutation();
 	return 0;
 #else
 	return ENOTSUP;

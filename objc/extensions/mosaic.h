@@ -86,7 +86,12 @@ enum mosaic_objc_image_unload_blocker
     MOSAIC_OBJC_IMAGE_BLOCKER_CATEGORY_METADATA = 1u << 4,
     MOSAIC_OBJC_IMAGE_BLOCKER_EXECUTABLE_CODE = 1u << 5,
     MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE = 1u << 6,
-    MOSAIC_OBJC_IMAGE_BLOCKER_LOADER_METADATA = 1u << 7
+    MOSAIC_OBJC_IMAGE_BLOCKER_LOADER_METADATA = 1u << 7,
+    MOSAIC_OBJC_IMAGE_BLOCKER_GLOBAL_HOOK_CODE = 1u << 8,
+    MOSAIC_OBJC_IMAGE_BLOCKER_TRACING_HOOK_CODE = 1u << 9,
+    MOSAIC_OBJC_IMAGE_BLOCKER_NOT_DETACHED = 1u << 10,
+    MOSAIC_OBJC_IMAGE_BLOCKER_HOST_NOT_QUIESCENT = 1u << 11,
+    MOSAIC_OBJC_IMAGE_BLOCKER_STALE_EPOCH = 1u << 12
 };
 
 /** Stable diagnostic metadata for a registered Objective-C image. */
@@ -114,6 +119,8 @@ struct mosaic_objc_image_unload_report
     size_t category_metadata_count;
     size_t loader_metadata_count;
     size_t executable_reference_count;
+    size_t global_hook_reference_count;
+    size_t tracing_hook_reference_count;
 };
 
 /** Returns a malloc-owned image list in load order. */
@@ -144,6 +151,14 @@ OBJC_PUBLIC BOOL mosaic_objc_imageGetUnloadReport(
 /** True only when a retired image has no currently known runtime blockers. */
 OBJC_PUBLIC BOOL mosaic_objc_imageIsUnloadCandidate(
     mosaic_objc_image_t image, struct mosaic_objc_image_unload_report *outReport);
+/**
+ * Point-in-time physical-unmap predicate. Requires DETACHED state, a fresh
+ * epoch, zero runtime code references, and host quiescence. The host must
+ * serialize publication of new executable references through the actual unmap.
+ */
+OBJC_PUBLIC BOOL mosaic_objc_imageIsPhysicalUnloadReady(
+    mosaic_objc_image_t image, uint64_t expectedMutationEpoch, BOOL hostQuiescent,
+    struct mosaic_objc_image_unload_report *outReport);
 OBJC_PUBLIC mosaic_objc_image_t mosaic_objc_imageForClass(Class cls);
 OBJC_PUBLIC mosaic_objc_image_t mosaic_objc_imageForProtocol(Protocol *protocol);
 OBJC_PUBLIC Class mosaic_objc_imageGetClass(mosaic_objc_image_t image, size_t index);

@@ -142,6 +142,7 @@ void free_dtable(dtable_t dtable);
  * is installed.
  */
 void checkARCAccessorsSlow(Class cls);
+PRIVATE size_t objc2_countTracingHookReferences(uintptr_t base, size_t size);
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,8 @@
 #include "objc/runtime.h"
 #include "objc/exceptions/runtime.h"
 #include "visibility.h"
+#include "lifecycle.h"
+#include "observability.h"
 
 #include <windows.h>
 #define RtlAddGrowableFunctionTable ClangIsConfusedByTypedefReturnTypes
@@ -275,13 +277,26 @@ LONG WINAPI _objc_unhandled_exception_filter(struct _EXCEPTION_POINTERS* excepti
 
 OBJC_PUBLIC extern "C" objc_uncaught_exception_handler objc_setUncaughtExceptionHandler(objc_uncaught_exception_handler handler)
 {
-	objc_uncaught_exception_handler previousHandler = __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
+	mosaic_objc_beginRuntimeMutation();
+	objc_uncaught_exception_handler previousHandler =
+	    __atomic_exchange_n(&_objc_unexpected_exception, handler, __ATOMIC_SEQ_CST);
 
 	// set unhandled exception filter to support hook
 	LPTOP_LEVEL_EXCEPTION_FILTER previousExceptionFilter = SetUnhandledExceptionFilter(&_objc_unhandled_exception_filter);
 	if (previousExceptionFilter != &_objc_unhandled_exception_filter) {
 		originalUnhandledExceptionFilter = previousExceptionFilter;
 	}
+	mosaic_objc_endRuntimeMutation();
 
 	return previousHandler;
+}
+
+extern "C" PRIVATE size_t objc2_countExceptionHookReferences(uintptr_t base, size_t size)
+{
+	size_t count = 0;
+	uintptr_t handler = reinterpret_cast<uintptr_t>(_objc_unexpected_exception);
+	if ((handler >= base) && ((handler - base) < size)) { count++; }
+	uintptr_t filter = reinterpret_cast<uintptr_t>(originalUnhandledExceptionFilter);
+	if ((filter >= base) && ((filter - base) < size)) { count++; }
+	return count;
 }

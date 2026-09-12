@@ -9,7 +9,10 @@
 #include <string.h>
 #include "objc/runtime.h"
 #include "objc/mosaic.h"
+#include "objc/support/hooks.h"
+#include "objc/exceptions/runtime.h"
 #include "class.h"
+#include "observability.h"
 
 struct objc_init
 {
@@ -49,6 +52,17 @@ static uintptr_t replacement_method(id self, SEL _cmd)
 {
     (void)self; (void)_cmd;
     return 0x2222u;
+}
+
+static Class lifecycle_lookup_hook(const char *name)
+{
+    (void)name;
+    return Nil;
+}
+
+static void lifecycle_uncaught_hook(id exception)
+{
+    (void)exception;
 }
 
 static mosaic_objc_image_t load_empty_image(struct objc_init *init)
@@ -156,6 +170,10 @@ int main(void)
     uint64_t fresh_epoch = report.mutation_epoch;
 
     mosaic_objc_runtimeSetEventSink(event_sink, NULL);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(image, &report));
+    CHECK(report.blockers == 0);
+    fresh_epoch = report.mutation_epoch;
     CHECK(mosaic_objc_imageDetach(image, fresh_epoch));
     CHECK(event_count == 2);
     CHECK(last_event == MOSAIC_OBJC_EVENT_IMAGE_DETACHED);
@@ -164,6 +182,20 @@ int main(void)
     CHECK(report.state == MOSAIC_OBJC_IMAGE_DETACHED);
     CHECK(report.blockers == 0);
     CHECK(report.mutation_epoch > fresh_epoch);
+    uint64_t detached_epoch = report.mutation_epoch;
+    CHECK(!mosaic_objc_imageIsPhysicalUnloadReady(image, detached_epoch, NO, &report));
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_HOST_NOT_QUIESCENT) != 0);
+    CHECK(!mosaic_objc_imageIsPhysicalUnloadReady(image, detached_epoch - 1, YES, &report));
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_STALE_EPOCH) != 0);
+    CHECK(mosaic_objc_imageIsPhysicalUnloadReady(image, detached_epoch, YES, &report));
+    CHECK(report.blockers == 0);
+    mosaic_objc_beginRuntimeMutation();
+    CHECK(!mosaic_objc_imageIsPhysicalUnloadReady(
+        image, mosaic_objc_runtimeMutationEpoch(), YES, &report));
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE) != 0);
+    mosaic_objc_endRuntimeMutation();
+    CHECK(mosaic_objc_imageGetUnloadReport(image, &report));
+    CHECK(report.blockers == 0);
     CHECK(mosaic_objc_imageDetach(image, report.mutation_epoch));
     CHECK(mosaic_objc_imageRetire(image));
 
@@ -215,6 +247,67 @@ int main(void)
     CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_ADDRESS_RANGE_UNKNOWN) == 0);
     CHECK(!mosaic_objc_imageIsUnloadCandidate(class_image, NULL));
     CHECK(!mosaic_objc_imageDetach(class_image, report.mutation_epoch));
+
+
+    struct objc_init sink_init;
+    mosaic_objc_image_t sink_image = load_empty_image(&sink_init);
+    CHECK(sink_image != NULL);
+    memset(&sink_init, 0, sizeof(sink_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        sink_image, (const void *)(uintptr_t)(void *)event_sink, 1));
+    CHECK(mosaic_objc_imageRetire(sink_image));
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(sink_image, &report));
+    CHECK(report.global_hook_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_GLOBAL_HOOK_CODE) != 0);
+    mosaic_objc_runtimeSetEventSink(NULL, NULL);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(sink_image, &report));
+    CHECK(report.global_hook_reference_count == 0);
+    CHECK(report.blockers == 0);
+    CHECK(mosaic_objc_imageDetach(sink_image, report.mutation_epoch));
+    mosaic_objc_runtimeSetEventSink(event_sink, NULL);
+
+    struct objc_init lookup_init;
+    mosaic_objc_image_t lookup_image = load_empty_image(&lookup_init);
+    CHECK(lookup_image != NULL);
+    memset(&lookup_init, 0, sizeof(lookup_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        lookup_image, (const void *)(uintptr_t)(void *)lifecycle_lookup_hook, 1));
+    CHECK(mosaic_objc_imageRetire(lookup_image));
+    Class (*saved_lookup_hook)(const char *) = _objc_lookup_class;
+    _objc_lookup_class = lifecycle_lookup_hook;
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(lookup_image, &report));
+    CHECK(report.global_hook_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_GLOBAL_HOOK_CODE) != 0);
+    _objc_lookup_class = saved_lookup_hook;
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(lookup_image, &report));
+    CHECK(report.global_hook_reference_count == 0);
+    CHECK(report.blockers == 0);
+    CHECK(mosaic_objc_imageDetach(lookup_image, report.mutation_epoch));
+
+
+    struct objc_init exception_init;
+    mosaic_objc_image_t exception_image = load_empty_image(&exception_init);
+    CHECK(exception_image != NULL);
+    memset(&exception_init, 0, sizeof(exception_init));
+    CHECK(mosaic_objc_imageSetAddressRange(
+        exception_image, (const void *)(uintptr_t)(void *)lifecycle_uncaught_hook, 1));
+    CHECK(mosaic_objc_imageRetire(exception_image));
+    objc_uncaught_exception_handler previous_exception_hook =
+        objc_setUncaughtExceptionHandler(lifecycle_uncaught_hook);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(exception_image, &report));
+    CHECK(report.global_hook_reference_count >= 1);
+    CHECK((report.blockers & MOSAIC_OBJC_IMAGE_BLOCKER_GLOBAL_HOOK_CODE) != 0);
+    CHECK(objc_setUncaughtExceptionHandler(previous_exception_hook) == lifecycle_uncaught_hook);
+    memset(&report, 0, sizeof(report));
+    CHECK(mosaic_objc_imageGetUnloadReport(exception_image, &report));
+    CHECK(report.global_hook_reference_count == 0);
+    CHECK(report.blockers == 0);
+    CHECK(mosaic_objc_imageDetach(exception_image, report.mutation_epoch));
 
     CHECK(!mosaic_objc_imageGetUnloadReport(NULL, &report));
     CHECK(!mosaic_objc_imageGetUnloadReport(image, NULL));

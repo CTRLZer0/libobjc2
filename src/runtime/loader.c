@@ -11,6 +11,7 @@
 #include "legacy.h"
 #include "observability.h"
 #include "allocation.h"
+#include "dtable.h"
 #ifdef ENABLE_GC
 #include <gc/gc.h>
 #endif
@@ -530,9 +531,26 @@ BOOL mosaic_objc_imageGetUnloadReport(
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_EXECUTABLE_CODE;
 	}
+	if ((image->base_address != NULL) && (image->mapped_size != 0))
+	{
+		uintptr_t base = (uintptr_t)image->base_address;
+		report.global_hook_reference_count =
+		    mosaic_objc_countGlobalHookReferences(base, image->mapped_size);
+		report.tracing_hook_reference_count =
+		    objc2_countTracingHookReferences(base, image->mapped_size);
+	}
+	if (report.global_hook_reference_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_GLOBAL_HOOK_CODE;
+	}
+	if (report.tracing_hook_reference_count != 0)
+	{
+		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_TRACING_HOOK_CODE;
+	}
 	uint64_t epochAfter = mosaic_objc_runtimeMutationEpoch();
 	report.mutation_epoch = epochAfter;
-	if (epochBefore != epochAfter)
+	if (((epochBefore | epochAfter) & UINT64_C(1)) != 0 ||
+	    (epochBefore != epochAfter))
 	{
 		report.blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_ANALYSIS_INCOMPLETE;
 	}
@@ -576,6 +594,30 @@ BOOL mosaic_objc_imageIsUnloadCandidate(
 	struct mosaic_objc_image_unload_report *report =
 	    outReport != NULL ? outReport : &localReport;
 	if (!mosaic_objc_imageGetUnloadReport(image, report)) { return NO; }
+	return report->blockers == 0;
+}
+
+BOOL mosaic_objc_imageIsPhysicalUnloadReady(
+    mosaic_objc_image_t image, uint64_t expectedMutationEpoch, BOOL hostQuiescent,
+    struct mosaic_objc_image_unload_report *outReport)
+{
+	struct mosaic_objc_image_unload_report localReport;
+	struct mosaic_objc_image_unload_report *report =
+	    outReport != NULL ? outReport : &localReport;
+	if (!mosaic_objc_imageGetUnloadReport(image, report)) { return NO; }
+	if (report->state != MOSAIC_OBJC_IMAGE_DETACHED)
+	{
+		report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_NOT_DETACHED;
+	}
+	if (!hostQuiescent)
+	{
+		report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_HOST_NOT_QUIESCENT;
+	}
+	if ((expectedMutationEpoch == 0) ||
+	    (report->mutation_epoch != expectedMutationEpoch))
+	{
+		report->blockers |= MOSAIC_OBJC_IMAGE_BLOCKER_STALE_EPOCH;
+	}
 	return report->blockers == 0;
 }
 
