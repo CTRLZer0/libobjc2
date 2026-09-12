@@ -29,6 +29,8 @@ static inline void safe_remove_from_subclass_list(Class cls);
 PRIVATE BOOL objc_resolve_class(Class);
 void objc_send_initialize(id object);
 
+typedef void (*cxx_method_t)(id, SEL);
+
 /**
  * Calls C++ destructors in the correct order.
  */
@@ -48,7 +50,7 @@ PRIVATE void call_cxx_destruct(id obj)
 		cls = cls->super_class;
 		if (currentClass->cxx_destruct)
 		{
-			currentClass->cxx_destruct(obj, cxx_destruct);
+			((cxx_method_t)currentClass->cxx_destruct)(obj, cxx_destruct);
 		}
 	}
 }
@@ -65,7 +67,7 @@ static void call_cxx_construct_for_class(Class cls, id obj)
 	}
 	if (cls->cxx_construct)
 	{
-		cls->cxx_construct(obj, cxx_construct);
+		((cxx_method_t)cls->cxx_construct)(obj, cxx_construct);
 	}
 }
 
